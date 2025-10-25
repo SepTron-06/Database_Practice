@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("WinFormsDB")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+0e15e3f3df69924d4d28d4b512223561407a03b0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+4df0b1876ee0917d419195e10d45670a1ff3288c")]
 [assembly: System.Reflection.AssemblyProductAttribute("WinFormsDB")]
 [assembly: System.Reflection.AssemblyTitleAttribute("WinFormsDB")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
