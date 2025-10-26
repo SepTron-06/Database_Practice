@@ -1,9 +1,6 @@
 ﻿using Npgsql;
-using System;
 using System.Collections.Generic;
 using System.Data;
-using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 using WinFormsDB.Data;
 using WinFormsDB.Models;
@@ -71,11 +68,13 @@ namespace WinFormsDB.Repositories
             using var connection = await _dbConnection.GetConnectionAsync();
 
             var sql = @"
-            SELECT b.*, t.TariffName, s.ServiceName, a.Street, a.House, a.Apartment
+            SELECT b.*, t.TariffName, s.ServiceName, a.Street, a.House, a.Apartment,
+                   c.FirstName, c.LastName
             FROM Bills b
             JOIN Tariffs t ON b.TariffID = t.TariffID
             JOIN Services s ON t.ServiceID = s.ServiceID
             JOIN Addresses a ON b.AddressID = a.AddressID
+            JOIN Clients c ON a.ClientID = c.ClientID
             WHERE b.AddressID = @AddressID
             ORDER BY b.PaymentDate DESC";
 
@@ -98,7 +97,8 @@ namespace WinFormsDB.Repositories
                     ServiceName = reader.GetString("ServiceName"),
                     Street = reader.GetString("Street"),
                     House = reader.GetString("House"),
-                    Apartment = reader.IsDBNull("Apartment") ? null : reader.GetString("Apartment")
+                    Apartment = reader.IsDBNull(reader.GetOrdinal("Apartment")) ? null : reader.GetString("Apartment"),
+                    ClientName = $"{reader.GetString("FirstName")} {reader.GetString("LastName")}"
                 });
             }
 
@@ -114,6 +114,12 @@ namespace WinFormsDB.Repositories
             cmd.Parameters.AddWithValue("@BillID", billId);
 
             await cmd.ExecuteNonQueryAsync();
+        }
+
+        public async Task<List<Bill>> GetBillsAsync()
+        {
+            // Временная реализация для совместимости
+            return await Task.FromResult(new List<Bill>());
         }
     }
 }

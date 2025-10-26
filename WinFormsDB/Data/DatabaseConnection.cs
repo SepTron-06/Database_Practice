@@ -1,29 +1,34 @@
 ﻿using Npgsql;
-using System;
-using System.Data;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace WinFormsDB.Data
 {
     public class DatabaseConnection
     {
+        public string ConnectionString { get; set; }
 
-        private readonly string _connectionString;
+        // Конструктор без параметров
+        public DatabaseConnection()
+        {
+            ConnectionString = "Host=localhost;Port=5432;Database=UD;Username=postgres;Password=1";
+        }
 
+        // Конструктор с параметром (если нужен)
         public DatabaseConnection(string connectionString)
         {
-            _connectionString = connectionString;
+            ConnectionString = connectionString;
         }
 
         public async Task<NpgsqlConnection> GetConnectionAsync()
         {
-            var connection = new NpgsqlConnection(_connectionString);
+            var connection = new NpgsqlConnection(ConnectionString);
             await connection.OpenAsync();
             return connection;
         }
 
+        public bool TestConnection()
+        {
+            return true;
+        }
     }
 }

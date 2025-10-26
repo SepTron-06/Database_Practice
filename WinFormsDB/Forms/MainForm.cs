@@ -1,79 +1,160 @@
-Ôªøusing WinFormsDB.Data;
+using WinFormsDB.Data;
 using WinFormsDB.Repositories;
+using WinFormsDB.Services;
 using WinFormsDB.Models;
 using System.Windows.Forms;
 using System.Drawing;
+using System.ComponentModel;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace WinFormsDB.Forms
 {
-    public class MainForm : Form
+    public partial class MainForm : Form
     {
         private readonly DatabaseConnection _dbConnection;
         private readonly ClientRepository _clientRepository;
-        private DataGridView dataGridViewClients;
-        private MenuStrip mainMenu;
-        private StatusStrip statusStrip;
-        private ToolStripStatusLabel statusLabel;
+        private readonly ServiceRepository _serviceRepository;
+        private readonly TariffRepository _tariffRepository;
+
+        private DataGridView? dataGridViewClients;
+        private DataGridView? dataGridViewServices;
+        private DataGridView? dataGridViewTariffs;
+        private MenuStrip? mainMenu;
+        private StatusStrip? statusStrip;
+        private ToolStripStatusLabel? statusLabel;
+
+        // “ÂÍÛ˘‡ˇ ‡ÍÚË‚Ì‡ˇ Ú‡·ÎËˆ‡
+        private string currentTable = "Clients";
 
         public MainForm(DatabaseConnection dbConnection)
         {
             _dbConnection = dbConnection;
             _clientRepository = new ClientRepository(_dbConnection);
+            _serviceRepository = new ServiceRepository(_dbConnection);
+            _tariffRepository = new TariffRepository(_dbConnection);
 
+            InitializeComponent();
             InitializeForm();
-            LoadClientsAsync();
+            _ = LoadClientsAsync();
         }
 
         private void InitializeForm()
         {
-            // –ù–∞—Å—Ç—Ä–æ–π–∫–∞ –æ—Å–Ω–æ–≤–Ω–æ–π —Ñ–æ—Ä–º—ã
-            this.Text = "–£–ø—Ä–∞–≤–ª–µ–Ω–∏–µ –∫–æ–º–º—É–Ω–∞–ª—å–Ω—ã–º–∏ —É—Å–ª—É–≥–∞–º–∏";
+            // Õ‡ÒÚÓÈÍ‡ ÓÒÌÓ‚ÌÓÈ ÙÓÏ˚
+            this.Text = "”Ô‡‚ÎÂÌËÂ ÍÓÏÏÛÌ‡Î¸Ì˚ÏË ÛÒÎÛ„‡ÏË";
             this.WindowState = FormWindowState.Maximized;
             this.Size = new Size(1200, 700);
             this.StartPosition = FormStartPosition.CenterScreen;
 
-            // –°–æ–∑–¥–∞–µ–º —ç–ª–µ–º–µ–Ω—Ç—ã –∏–Ω—Ç–µ—Ä—Ñ–µ–π—Å–∞
+            // —ÓÁ‰‡ÂÏ ˝ÎÂÏÂÌÚ˚ ËÌÚÂÙÂÈÒ‡
             CreateMenu();
-            CreateDataGrid();
+            CreateDataGrids();
             CreateStatusBar();
+
+            // œÓÍ‡Á˚‚‡ÂÏ Ú‡·ÎËˆÛ ÍÎËÂÌÚÓ‚ ÔÓ ÛÏÓÎ˜‡ÌË˛
+            ShowTable("Clients");
         }
 
+       
         private void CreateMenu()
         {
             mainMenu = new MenuStrip();
             mainMenu.Dock = DockStyle.Top;
 
-            // –ú–µ–Ω—é "–§–∞–π–ª"
-            var fileMenu = new ToolStripMenuItem("–§–∞–π–ª");
-            var exitItem = new ToolStripMenuItem("–í—ã—Ö–æ–¥");
+            // ÃÂÌ˛ "‘‡ÈÎ"
+            var fileMenu = new ToolStripMenuItem("‘‡ÈÎ");
+            var exitItem = new ToolStripMenuItem("¬˚ıÓ‰");
             exitItem.Click += (s, e) => Application.Exit();
             fileMenu.DropDownItems.Add(exitItem);
 
-            // –ú–µ–Ω—é "–ö–ª–∏–µ–Ω—Ç—ã"
-            var clientsMenu = new ToolStripMenuItem("–ö–ª–∏–µ–Ω—Ç—ã");
-            var addClientItem = new ToolStripMenuItem("–î–æ–±–∞–≤–∏—Ç—å –∫–ª–∏–µ–Ω—Ç–∞");
+            // ÃÂÌ˛ "“‡·ÎËˆ˚"
+            var tablesMenu = new ToolStripMenuItem("“‡·ÎËˆ˚");
+
+            var clientsTableItem = new ToolStripMenuItem(" ÎËÂÌÚ˚");
+            clientsTableItem.Click += (s, e) => ShowTable("Clients");
+
+            var servicesTableItem = new ToolStripMenuItem("”ÒÎÛ„Ë");
+            servicesTableItem.Click += (s, e) => ShowTable("Services");
+
+            var tariffsTableItem = new ToolStripMenuItem("“‡ËÙ˚");
+            tariffsTableItem.Click += (s, e) => ShowTable("Tariffs");
+
+            tablesMenu.DropDownItems.Add(clientsTableItem);
+            tablesMenu.DropDownItems.Add(servicesTableItem);
+            tablesMenu.DropDownItems.Add(tariffsTableItem);
+
+            // ÃÂÌ˛ " ÎËÂÌÚ˚" (ÚÓÎ¸ÍÓ ÍÓ„‰‡ ‡ÍÚË‚Ì‡ Ú‡·ÎËˆ‡ ÍÎËÂÌÚÓ‚)
+            var clientsMenu = new ToolStripMenuItem(" ÎËÂÌÚ˚");
+
+            var addClientItem = new ToolStripMenuItem("ƒÓ·‡‚ËÚ¸ ÍÎËÂÌÚ‡");
             addClientItem.Click += (s, e) => ShowAddClientForm();
-            var refreshClientsItem = new ToolStripMenuItem("–û–±–Ω–æ–≤–∏—Ç—å —Å–ø–∏—Å–æ–∫");
+
+            var deleteClientItem = new ToolStripMenuItem("”‰‡ÎËÚ¸ ÍÎËÂÌÚ‡");
+            deleteClientItem.Click += (s, e) => DeleteSelectedClient();
+
+            var refreshClientsItem = new ToolStripMenuItem("Œ·ÌÓ‚ËÚ¸ ÒÔËÒÓÍ");
             refreshClientsItem.Click += (s, e) => LoadClientsAsync();
+
+            var separator = new ToolStripSeparator();
+
             clientsMenu.DropDownItems.Add(addClientItem);
+            clientsMenu.DropDownItems.Add(deleteClientItem);
+            clientsMenu.DropDownItems.Add(separator);
             clientsMenu.DropDownItems.Add(refreshClientsItem);
 
-            // –ú–µ–Ω—é "–û—Ç—á–µ—Ç—ã"
-            var reportsMenu = new ToolStripMenuItem("–û—Ç—á–µ—Ç—ã");
-            var unpaidBillsItem = new ToolStripMenuItem("–ù–µ–æ–ø–ª–∞—á–µ–Ω–Ω—ã–µ —Å—á–µ—Ç–∞");
+            // ÃÂÌ˛ "”ÒÎÛ„Ë" (ÚÓÎ¸ÍÓ ÍÓ„‰‡ ‡ÍÚË‚Ì‡ Ú‡·ÎËˆ‡ ÛÒÎÛ„)
+            var servicesMenu = new ToolStripMenuItem("”ÒÎÛ„Ë");
+
+            var addServiceItem = new ToolStripMenuItem("ƒÓ·‡‚ËÚ¸ ÛÒÎÛ„Û");
+            addServiceItem.Click += (s, e) => ShowAddServiceForm();
+
+            var deleteServiceItem = new ToolStripMenuItem("”‰‡ÎËÚ¸ ÛÒÎÛ„Û");
+            deleteServiceItem.Click += (s, e) => DeleteSelectedService();
+
+            var refreshServicesItem = new ToolStripMenuItem("Œ·ÌÓ‚ËÚ¸ ÒÔËÒÓÍ");
+            refreshServicesItem.Click += (s, e) => LoadServicesAsync();
+
+            servicesMenu.DropDownItems.Add(addServiceItem);
+            servicesMenu.DropDownItems.Add(deleteServiceItem);
+            servicesMenu.DropDownItems.Add(refreshServicesItem);
+
+            // ÃÂÌ˛ "“‡ËÙ˚" (ÚÓÎ¸ÍÓ ÍÓ„‰‡ ‡ÍÚË‚Ì‡ Ú‡·ÎËˆ‡ Ú‡ËÙÓ‚)
+            var tariffsMenu = new ToolStripMenuItem("“‡ËÙ˚");
+
+            var addTariffItem = new ToolStripMenuItem("ƒÓ·‡‚ËÚ¸ Ú‡ËÙ");
+            addTariffItem.Click += (s, e) => ShowAddTariffForm();
+
+            var deleteTariffItem = new ToolStripMenuItem("”‰‡ÎËÚ¸ Ú‡ËÙ");
+            deleteTariffItem.Click += (s, e) => DeleteSelectedTariff();
+
+            var refreshTariffsItem = new ToolStripMenuItem("Œ·ÌÓ‚ËÚ¸ ÒÔËÒÓÍ");
+            refreshTariffsItem.Click += (s, e) => LoadTariffsAsync();
+
+            tariffsMenu.DropDownItems.Add(addTariffItem);
+            tariffsMenu.DropDownItems.Add(deleteTariffItem);
+            tariffsMenu.DropDownItems.Add(refreshTariffsItem);
+
+            // ÃÂÌ˛ "ŒÚ˜ÂÚ˚"
+            var reportsMenu = new ToolStripMenuItem("ŒÚ˜ÂÚ˚");
+            var unpaidBillsItem = new ToolStripMenuItem("ÕÂÓÔÎ‡˜ÂÌÌ˚Â Ò˜ÂÚ‡");
             unpaidBillsItem.Click += (s, e) => ShowUnpaidBillsReport();
             reportsMenu.DropDownItems.Add(unpaidBillsItem);
 
             mainMenu.Items.Add(fileMenu);
+            mainMenu.Items.Add(tablesMenu);
             mainMenu.Items.Add(clientsMenu);
+            mainMenu.Items.Add(servicesMenu);
+            mainMenu.Items.Add(tariffsMenu);
             mainMenu.Items.Add(reportsMenu);
 
             this.Controls.Add(mainMenu);
             this.MainMenuStrip = mainMenu;
         }
 
-        private void CreateDataGrid()
+        private void CreateDataGrids()
         {
+            // “‡·ÎËˆ‡ ÍÎËÂÌÚÓ‚
             dataGridViewClients = new DataGridView
             {
                 Name = "dataGridViewClients",
@@ -83,14 +164,45 @@ namespace WinFormsDB.Forms
                 AllowUserToAddRows = false,
                 AllowUserToDeleteRows = false,
                 SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-                Location = new Point(0, 50),
-                Size = new Size(1200, 600)
+                Location = new Point(0, 24),
+                Size = new Size(1200, 626),
+                Visible = false
             };
 
-            // –î–æ–±–∞–≤–ª—è–µ–º –æ–±—Ä–∞–±–æ—Ç—á–∏–∫ –¥–≤–æ–π–Ω–æ–≥–æ –∫–ª–∏–∫–∞
+            // “‡·ÎËˆ‡ ÛÒÎÛ„
+            dataGridViewServices = new DataGridView
+            {
+                Name = "dataGridViewServices",
+                Dock = DockStyle.Fill,
+                ReadOnly = true,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                AllowUserToAddRows = false,
+                AllowUserToDeleteRows = false,
+                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                Location = new Point(0, 24),
+                Size = new Size(1200, 626),
+                Visible = false
+            };
+
+            // “‡·ÎËˆ‡ Ú‡ËÙÓ‚
+            dataGridViewTariffs = new DataGridView
+            {
+                Name = "dataGridViewTariffs",
+                Dock = DockStyle.Fill,
+                ReadOnly = true,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                AllowUserToAddRows = false,
+                AllowUserToDeleteRows = false,
+                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                Location = new Point(0, 24),
+                Size = new Size(1200, 626),
+                Visible = false
+            };
+
+            // ƒÓ·‡‚ÎˇÂÏ Ó·‡·ÓÚ˜ËÍË ‰‚ÓÈÌÓ„Ó ÍÎËÍ‡
             dataGridViewClients.CellDoubleClick += (s, e) =>
             {
-                if (e.RowIndex >= 0)
+                if (e.RowIndex >= 0 && dataGridViewClients != null)
                 {
                     var client = dataGridViewClients.Rows[e.RowIndex].DataBoundItem as Client;
                     if (client != null)
@@ -100,7 +212,33 @@ namespace WinFormsDB.Forms
                 }
             };
 
+            dataGridViewServices!.CellDoubleClick += (s, e) =>
+            {
+                if (e.RowIndex >= 0 && dataGridViewServices != null)
+                {
+                    var service = dataGridViewServices.Rows[e.RowIndex].DataBoundItem as Service;
+                    if (service != null)
+                    {
+                        ShowServiceDetails(service);
+                    }
+                }
+            };
+
+            dataGridViewTariffs!.CellDoubleClick += (s, e) =>
+            {
+                if (e.RowIndex >= 0 && dataGridViewTariffs != null)
+                {
+                    var tariff = dataGridViewTariffs.Rows[e.RowIndex].DataBoundItem as Tariff;
+                    if (tariff != null)
+                    {
+                        ShowTariffDetails(tariff);
+                    }
+                }
+            };
+
             this.Controls.Add(dataGridViewClients);
+            this.Controls.Add(dataGridViewServices);
+            this.Controls.Add(dataGridViewTariffs);
         }
 
         private void CreateStatusBar()
@@ -109,27 +247,71 @@ namespace WinFormsDB.Forms
             statusStrip.Dock = DockStyle.Bottom;
 
             statusLabel = new ToolStripStatusLabel();
-            statusLabel.Text = "–ì–æ—Ç–æ–≤–æ";
+            statusLabel.Text = "√ÓÚÓ‚Ó";
             statusStrip.Items.Add(statusLabel);
 
             this.Controls.Add(statusStrip);
         }
 
-        private async void LoadClientsAsync()
+        private void ShowTable(string tableName)
         {
-            try
-            {
-                UpdateStatus("–ó–∞–≥—Ä—É–∑–∫–∞ –∫–ª–∏–µ–Ω—Ç–æ–≤...");
-                var clients = await _clientRepository.GetClientsAsync();
-                dataGridViewClients.DataSource = clients;
+            if (dataGridViewClients == null || dataGridViewServices == null || dataGridViewTariffs == null)
+                return;
 
-                UpdateStatus($"–ó–∞–≥—Ä—É–∂–µ–Ω–æ –∫–ª–∏–µ–Ω—Ç–æ–≤: {clients.Count}");
-            }
-            catch (Exception ex)
+            // —Í˚‚‡ÂÏ ‚ÒÂ Ú‡·ÎËˆ˚
+            dataGridViewClients.Visible = false;
+            dataGridViewServices.Visible = false;
+            dataGridViewTariffs.Visible = false;
+
+            // Œ·ÌÓ‚ÎˇÂÏ ÏÂÌ˛ ‚ Á‡‚ËÒËÏÓÒÚË ÓÚ ‡ÍÚË‚ÌÓÈ Ú‡·ÎËˆ˚
+            UpdateMenuVisibility(tableName);
+
+            // œÓÍ‡Á˚‚‡ÂÏ ‚˚·‡ÌÌÛ˛ Ú‡·ÎËˆÛ Ë Á‡„ÛÊ‡ÂÏ ‰‡ÌÌ˚Â
+            switch (tableName)
             {
-                MessageBox.Show($"–û—à–∏–±–∫–∞ –∑–∞–≥—Ä—É–∑–∫–∏ –∫–ª–∏–µ–Ω—Ç–æ–≤: {ex.Message}", "–û—à–∏–±–∫–∞",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-                UpdateStatus("–û—à–∏–±–∫–∞ –∑–∞–≥—Ä—É–∑–∫–∏ –¥–∞–Ω–Ω—ã—Ö");
+                case "Clients":
+                    dataGridViewClients.Visible = true;
+                    currentTable = "Clients";
+                    LoadClientsAsync();
+                    UpdateStatus("“‡·ÎËˆ‡:  ÎËÂÌÚ˚");
+                    break;
+                case "Services":
+                    dataGridViewServices.Visible = true;
+                    currentTable = "Services";
+                    LoadServicesAsync();
+                    UpdateStatus("“‡·ÎËˆ‡: ”ÒÎÛ„Ë");
+                    break;
+                case "Tariffs":
+                    dataGridViewTariffs.Visible = true;
+                    currentTable = "Tariffs";
+                    LoadTariffsAsync();
+                    UpdateStatus("“‡·ÎËˆ‡: “‡ËÙ˚");
+                    break;
+            }
+        }
+
+        private void UpdateMenuVisibility(string activeTable)
+        {
+            if (mainMenu == null) return;
+
+            // —Í˚‚‡ÂÏ/ÔÓÍ‡Á˚‚‡ÂÏ ÏÂÌ˛ ‚ Á‡‚ËÒËÏÓÒÚË ÓÚ ‡ÍÚË‚ÌÓÈ Ú‡·ÎËˆ˚
+            foreach (ToolStripItem item in mainMenu.Items)
+            {
+                if (item is ToolStripMenuItem menuItem)
+                {
+                    if (menuItem.Text == " ÎËÂÌÚ˚")
+                    {
+                        menuItem.Visible = (activeTable == "Clients");
+                    }
+                    else if (menuItem.Text == "”ÒÎÛ„Ë")
+                    {
+                        menuItem.Visible = (activeTable == "Services");
+                    }
+                    else if (menuItem.Text == "“‡ËÙ˚")
+                    {
+                        menuItem.Visible = (activeTable == "Tariffs");
+                    }
+                }
             }
         }
 
@@ -138,142 +320,10 @@ namespace WinFormsDB.Forms
             if (statusLabel != null)
             {
                 statusLabel.Text = message;
+                statusStrip!.Refresh();
             }
         }
 
-        private void ShowAddClientForm()
-        {
-            try
-            {
-                // –í—Ä–µ–º–µ–Ω–Ω–∞—è —Ä–µ–∞–ª–∏–∑–∞—Ü–∏—è - –¥–∏–∞–ª–æ–≥ –¥–ª—è –≤–≤–æ–¥–∞ –¥–∞–Ω–Ω—ã—Ö
-                var addForm = new Form
-                {
-                    Text = "–î–æ–±–∞–≤–∏—Ç—å –∫–ª–∏–µ–Ω—Ç–∞",
-                    Size = new Size(300, 200),
-                    StartPosition = FormStartPosition.CenterParent,
-                    FormBorderStyle = FormBorderStyle.FixedDialog,
-                    MaximizeBox = false,
-                    MinimizeBox = false
-                };
-
-                var lblFirstName = new Label { Text = "–ò–º—è:", Location = new Point(10, 20), Width = 80 };
-                var txtFirstName = new TextBox { Location = new Point(100, 20), Width = 150 };
-
-                var lblLastName = new Label { Text = "–§–∞–º–∏–ª–∏—è:", Location = new Point(10, 50), Width = 80 };
-                var txtLastName = new TextBox { Location = new Point(100, 50), Width = 150 };
-
-                var btnSave = new Button { Text = "–°–æ—Ö—Ä–∞–Ω–∏—Ç—å", Location = new Point(100, 100), Width = 80 };
-                var btnCancel = new Button { Text = "–û—Ç–º–µ–Ω–∞", Location = new Point(190, 100), Width = 80 };
-
-                btnSave.Click += async (s, e) =>
-                {
-                    if (string.IsNullOrWhiteSpace(txtFirstName.Text) || string.IsNullOrWhiteSpace(txtLastName.Text))
-                    {
-                        MessageBox.Show("–ó–∞–ø–æ–ª–Ω–∏—Ç–µ –∏–º—è –∏ —Ñ–∞–º–∏–ª–∏—é", "–û—à–∏–±–∫–∞");
-                        return;
-                    }
-
-                    try
-                    {
-                        var client = new Client
-                        {
-                            FirstName = txtFirstName.Text,
-                            LastName = txtLastName.Text
-                        };
-
-                        await _clientRepository.AddClientAsync(client);
-                        addForm.DialogResult = DialogResult.OK;
-                        addForm.Close();
-
-                        LoadClientsAsync(); // –ü–µ—Ä–µ–∑–∞–≥—Ä—É–∂–∞–µ–º —Å–ø–∏—Å–æ–∫
-                    }
-                    catch (Exception ex)
-                    {
-                        MessageBox.Show($"–û—à–∏–±–∫–∞ —Å–æ—Ö—Ä–∞–Ω–µ–Ω–∏—è: {ex.Message}", "–û—à–∏–±–∫–∞");
-                    }
-                };
-
-                btnCancel.Click += (s, e) =>
-                {
-                    addForm.DialogResult = DialogResult.Cancel;
-                    addForm.Close();
-                };
-
-                addForm.Controls.AddRange(new Control[]
-                {
-                    lblFirstName, txtFirstName,
-                    lblLastName, txtLastName,
-                    btnSave, btnCancel
-                });
-
-                addForm.ShowDialog();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"–û—à–∏–±–∫–∞ –æ—Ç–∫—Ä—ã—Ç–∏—è —Ñ–æ—Ä–º—ã: {ex.Message}", "–û—à–∏–±–∫–∞");
-            }
-        }
-
-        private void ShowClientDetails(Client client)
-        {
-            try
-            {
-                var details = $"–ö–ª–∏–µ–Ω—Ç: {client.LastName} {client.FirstName}\n" +
-                             $"ID: {client.ClientID}\n" +
-                             $"–¢–µ–ª–µ—Ñ–æ–Ω: {client.Phone ?? "–Ω–µ —É–∫–∞–∑–∞–Ω"}\n" +
-                             $"Email: {client.Email ?? "–Ω–µ —É–∫–∞–∑–∞–Ω"}";
-
-                MessageBox.Show(details, "–ò–Ω—Ñ–æ—Ä–º–∞—Ü–∏—è –æ –∫–ª–∏–µ–Ω—Ç–µ",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"–û—à–∏–±–∫–∞ –æ—Ç–æ–±—Ä–∞–∂–µ–Ω–∏—è –¥–µ—Ç–∞–ª–µ–π: {ex.Message}", "–û—à–∏–±–∫–∞");
-            }
-        }
-
-        private async void ShowUnpaidBillsReport()
-        {
-            try
-            {
-                UpdateStatus("–§–æ—Ä–º–∏—Ä–æ–≤–∞–Ω–∏–µ –æ—Ç—á–µ—Ç–∞...");
-
-                var reportService = new ReportService(_dbConnection);
-
-                // –ü–æ–ª—É—á–∞–µ–º –ø–µ—Ä–≤–æ–≥–æ –∫–ª–∏–µ–Ω—Ç–∞ –¥–ª—è –¥–µ–º–æ–Ω—Å—Ç—Ä–∞—Ü–∏–∏
-                var clients = await _clientRepository.GetClientsAsync();
-                if (clients.Count == 0)
-                {
-                    MessageBox.Show("–ù–µ—Ç –∫–ª–∏–µ–Ω—Ç–æ–≤ –¥–ª—è –æ—Ç—á–µ—Ç–∞", "–ò–Ω—Ñ–æ—Ä–º–∞—Ü–∏—è");
-                    return;
-                }
-
-                var unpaidBills = await reportService.GetUnpaidBillsByClient(clients[0].ClientID);
-
-                var reportText = $"–ù–µ–æ–ø–ª–∞—á–µ–Ω–Ω—ã–µ —Å—á–µ—Ç–∞ –¥–ª—è {clients[0].LastName} {clients[0].FirstName}:\n\n";
-                foreach (var bill in unpaidBills)
-                {
-                    reportText += $"{bill.ServiceName}: {bill.Amount:C2} (–¥–æ {bill.PaymentDate:dd.MM.yyyy})\n";
-                }
-
-                if (unpaidBills.Count == 0)
-                {
-                    reportText += "–ù–µ–æ–ø–ª–∞—á–µ–Ω–Ω—ã—Ö —Å—á–µ—Ç–æ–≤ –Ω–µ—Ç";
-                }
-
-                MessageBox.Show(reportText, "–û—Ç—á–µ—Ç –ø–æ –Ω–µ–æ–ø–ª–∞—á–µ–Ω–Ω—ã–º —Å—á–µ—Ç–∞–º",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
-
-                UpdateStatus("–û—Ç—á–µ—Ç —Å—Ñ–æ—Ä–º–∏—Ä–æ–≤–∞–Ω");
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"–û—à–∏–±–∫–∞ —Ñ–æ—Ä–º–∏—Ä–æ–≤–∞–Ω–∏—è –æ—Ç—á–µ—Ç–∞: {ex.Message}", "–û—à–∏–±–∫–∞");
-                UpdateStatus("–û—à–∏–±–∫–∞ —Ñ–æ—Ä–º–∏—Ä–æ–≤–∞–Ω–∏—è –æ—Ç—á–µ—Ç–∞");
-            }
-        }
-
-        // –£–±–∏—Ä–∞–µ–º –º–µ—Ç–æ–¥ Dispose, —Ç–∞–∫ –∫–∞–∫ DatabaseConnection –µ–≥–æ –Ω–µ —Ç—Ä–µ–±—É–µ—Ç
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
             base.OnFormClosed(e);

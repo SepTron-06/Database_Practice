@@ -1,5 +1,4 @@
 using Npgsql;
-using System.Windows.Forms;
 using WinFormsDB.Configuration;
 using WinFormsDB.Data;
 using WinFormsDB.Forms;
@@ -19,34 +18,14 @@ namespace WinFormsDB
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
-            // Инициализация базы данных
-            //try
-            //{
-            //    var dbConnection = new DatabaseConnection(AppConfig.ConnectionString);
-
-            //    // Создаем и инициализируем БД
-            //    var initializer = new DatabaseInitializer(dbConnection);
-            //    await initializer.InitializeDatabaseAsync();
-
-            //    // Проверяем структуру (для отладки)
-            //    var validator = new DatabaseValidator(dbConnection);
-            //    await validator.ValidateTableStructureAsync();
-
-            //    // Запускаем главную форму
-            //    Application.Run(new Forms.MainForm(dbConnection));
-            //}
-            //catch (Exception ex)
-            //{
-            //    MessageBox.Show($"Ошибка инициализации приложения: {ex.Message}", "Ошибка",
-            //        MessageBoxButtons.OK, MessageBoxIcon.Error);
-            //}
             try
             {
                 // Показываем информацию о подключении
                 MessageBox.Show($"Попытка подключения к: {AppConfig.ConnectionString}", "Информация",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
 
-                var dbConnection = new DatabaseConnection(AppConfig.ConnectionString);
+                // Исправлено: создаем DatabaseConnection без параметров
+                var dbConnection = new DatabaseConnection();
 
                 // Тестируем подключение
                 await TestConnection(dbConnection);
@@ -58,8 +37,7 @@ namespace WinFormsDB
                 var validator = new DatabaseValidator(dbConnection);
                 await validator.ValidateTableStructureAsync();
 
-                //Application.Run(new MainForm(dbConnection));
-                Application.Run(new Forms.MainForm(dbConnection));
+                Application.Run(new MainForm(dbConnection));
 
             }
             catch (Exception ex)
@@ -72,9 +50,9 @@ namespace WinFormsDB
                     "Ошибка подключения",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
-
-
         }
+
+        
 
         private static async Task TestConnection(DatabaseConnection dbConnection)
         {
@@ -90,6 +68,5 @@ namespace WinFormsDB
                 throw new Exception($"Не удалось подключиться к PostgreSQL: {ex.Message}");
             }
         }
-
     }
 }

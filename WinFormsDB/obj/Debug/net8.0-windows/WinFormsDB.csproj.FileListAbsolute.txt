@@ -8,7 +8,6 @@ D:\GitHub\Database_Practice\WinFormsDB\bin\Debug\net8.0-windows\Microsoft.Extens
 D:\GitHub\Database_Practice\WinFormsDB\bin\Debug\net8.0-windows\Npgsql.dll
 D:\GitHub\Database_Practice\WinFormsDB\obj\Debug\net8.0-windows\WinFormsDB.csproj.AssemblyReference.cache
 D:\GitHub\Database_Practice\WinFormsDB\obj\Debug\net8.0-windows\WinFormsDB.Forms.MainForm.resources
-D:\GitHub\Database_Practice\WinFormsDB\obj\Debug\net8.0-windows\WinFormsDB.MainForm.resources
 D:\GitHub\Database_Practice\WinFormsDB\obj\Debug\net8.0-windows\WinFormsDB.csproj.GenerateResource.cache
 D:\GitHub\Database_Practice\WinFormsDB\obj\Debug\net8.0-windows\WinFormsDB.GeneratedMSBuildEditorConfig.editorconfig
 D:\GitHub\Database_Practice\WinFormsDB\obj\Debug\net8.0-windows\WinFormsDB.AssemblyInfoInputs.cache
