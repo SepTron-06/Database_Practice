@@ -1,4 +1,5 @@
-﻿using Npgsql;
+﻿
+using Npgsql;
 using System.Threading.Tasks;
 
 namespace WinFormsDB.Data
@@ -7,28 +8,50 @@ namespace WinFormsDB.Data
     {
         public string ConnectionString { get; set; }
 
-        // Конструктор без параметров
+        // Конструктор по умолчанию (для формы подключения)
         public DatabaseConnection()
         {
-            ConnectionString = "Host=localhost;Port=5432;Database=UD;Username=postgres;Password=1";
+            // Пустая строка подключения - будет установлена позже
+            ConnectionString = string.Empty;
         }
 
-        // Конструктор с параметром (если нужен)
+        // Конструктор с параметром
         public DatabaseConnection(string connectionString)
         {
             ConnectionString = connectionString;
         }
 
+        // Метод для создания строки подключения из параметров
+        public void SetConnectionParameters(string host, string port, string database, string username, string password)
+        {
+            ConnectionString = $"Host={host};Port={port};Database={database};Username={username};Password={password}";
+        }
+
         public async Task<NpgsqlConnection> GetConnectionAsync()
         {
+            if (string.IsNullOrEmpty(ConnectionString))
+            {
+                throw new InvalidOperationException("Строка подключения не установлена");
+            }
+
             var connection = new NpgsqlConnection(ConnectionString);
             await connection.OpenAsync();
             return connection;
         }
 
-        public bool TestConnection()
+        public async Task<bool> TestConnectionAsync()
         {
-            return true;
+            try
+            {
+                using (var connection = await GetConnectionAsync())
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+                return false;
+            }
         }
     }
 }

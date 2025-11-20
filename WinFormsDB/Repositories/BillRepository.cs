@@ -1,6 +1,7 @@
 ﻿using Npgsql;
 using System.Collections.Generic;
 using System.Data;
+using System.Linq;
 using System.Threading.Tasks;
 using WinFormsDB.Data;
 using WinFormsDB.Models;
@@ -10,116 +11,261 @@ namespace WinFormsDB.Repositories
     public class BillRepository
     {
         private readonly DatabaseConnection _dbConnection;
+        private readonly AddressRepository _addressRepository;
+        private readonly ServiceRepository _serviceRepository;
 
         public BillRepository(DatabaseConnection dbConnection)
         {
             _dbConnection = dbConnection;
+            _addressRepository = new AddressRepository(dbConnection, new ClientRepository(dbConnection));
+            _serviceRepository = new ServiceRepository(dbConnection);
         }
 
-        public async Task<int> AddBillAsync(Bill bill)
+        public async Task InitializeSampleDataAsync()
         {
-            using var connection = await _dbConnection.GetConnectionAsync();
-            var sql = @"
-            INSERT INTO Bills (AddressID, TariffID, ConsumedVolume, Amount, PaymentDate, IsPaid)
-            VALUES (@AddressID, @TariffID, @ConsumedVolume, @Amount, @PaymentDate, @IsPaid)
-            RETURNING BillID";
-
-            using var cmd = new NpgsqlCommand(sql, connection);
-            cmd.Parameters.AddWithValue("@AddressID", bill.AddressID);
-            cmd.Parameters.AddWithValue("@TariffID", bill.TariffID);
-            cmd.Parameters.AddWithValue("@ConsumedVolume", bill.ConsumedVolume);
-            cmd.Parameters.AddWithValue("@Amount", bill.Amount);
-            cmd.Parameters.AddWithValue("@PaymentDate", bill.PaymentDate);
-            cmd.Parameters.AddWithValue("@IsPaid", bill.IsPaid);
-
-            return Convert.ToInt32(await cmd.ExecuteScalarAsync());
-        }
-
-        public async Task<List<Bill>> GetBillsByAddressAsync(int addressId)
-        {
-            var bills = new List<Bill>();
-            using var connection = await _dbConnection.GetConnectionAsync();
-
-            var sql = "SELECT * FROM Bills WHERE AddressID = @AddressID ORDER BY PaymentDate DESC";
-            using var cmd = new NpgsqlCommand(sql, connection);
-            cmd.Parameters.AddWithValue("@AddressID", addressId);
-
-            using var reader = await cmd.ExecuteReaderAsync();
-            while (await reader.ReadAsync())
+            try
             {
-                bills.Add(new Bill
+                // Проверяем, есть ли уже счета
+                var existingBills = await GetBillsAsync();
+                if (existingBills.Any())
                 {
-                    BillID = reader.GetInt32("BillID"),
-                    AddressID = reader.GetInt32("AddressID"),
-                    TariffID = reader.GetInt32("TariffID"),
-                    ConsumedVolume = reader.GetDecimal("ConsumedVolume"),
-                    Amount = reader.GetDecimal("Amount"),
-                    PaymentDate = reader.GetDateTime("PaymentDate"),
-                    IsPaid = reader.GetBoolean("IsPaid")
-                });
+                    System.Diagnostics.Debug.WriteLine("Тестовые счета уже существуют, пропускаем создание");
+                    return;
+                }
+
+                // Получаем адреса
+                var addresses = _addressRepository.GetAddresses();
+                if (addresses.Count < 2)
+                {
+                    System.Diagnostics.Debug.WriteLine("Недостаточно адресов для создания тестовых счетов");
+                    return;
+                }
+
+                // Получаем услуги
+                var services = _serviceRepository.GetServices();
+                if (services.Count < 2)
+                {
+                    System.Diagnostics.Debug.WriteLine("Недостаточно услуг для создания тестовых счетов");
+                    return;
+                }
+
+                // Создаем список тестовых счетов
+                var sampleBills = new List<Bill>
+                {
+                    new Bill
+                    {
+                        AddressID = addresses[0].AddressID,
+                        ServiceID = services[0].ServiceID,
+                        Amount = 2500.75m,
+                        IssueDate = new System.DateTime(2001, 8, 1),
+                        PaymentDate = new System.DateTime(2001, 9, 11),
+                        IsPaid = true
+                    },
+                    new Bill
+                    {
+                        AddressID = addresses[1].AddressID,
+                        ServiceID = services[1].ServiceID,
+                        Amount = 1800.50m,
+                        IssueDate = new System.DateTime(2001, 9, 1),
+                        PaymentDate = null,
+                        IsPaid = false
+                    }
+                };
+
+                System.Diagnostics.Debug.WriteLine($"Создаем {sampleBills.Count} тестовых счета...");
+
+                // Добавляем все счета из списка
+                foreach (var bill in sampleBills)
+                {
+                    try
+                    {
+                        var newBillId = await AddBillAsync(bill);
+                        System.Diagnostics.Debug.WriteLine($"Создан счет ID: {newBillId}");
+                    }
+                    catch (System.Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Ошибка создания счета: {ex.Message}");
+                    }
+                }
+
+                System.Diagnostics.Debug.WriteLine("Тестовые счета успешно созданы");
             }
-
-            return bills;
-        }
-
-        public async Task<List<BillWithDetails>> GetBillsWithDetailsByAddressAsync(int addressId)
-        {
-            var bills = new List<BillWithDetails>();
-            using var connection = await _dbConnection.GetConnectionAsync();
-
-            var sql = @"
-            SELECT b.*, t.TariffName, s.ServiceName, a.Street, a.House, a.Apartment,
-                   c.FirstName, c.LastName
-            FROM Bills b
-            JOIN Tariffs t ON b.TariffID = t.TariffID
-            JOIN Services s ON t.ServiceID = s.ServiceID
-            JOIN Addresses a ON b.AddressID = a.AddressID
-            JOIN Clients c ON a.ClientID = c.ClientID
-            WHERE b.AddressID = @AddressID
-            ORDER BY b.PaymentDate DESC";
-
-            using var cmd = new NpgsqlCommand(sql, connection);
-            cmd.Parameters.AddWithValue("@AddressID", addressId);
-
-            using var reader = await cmd.ExecuteReaderAsync();
-            while (await reader.ReadAsync())
+            catch (System.Exception ex)
             {
-                bills.Add(new BillWithDetails
-                {
-                    BillID = reader.GetInt32("BillID"),
-                    AddressID = reader.GetInt32("AddressID"),
-                    TariffID = reader.GetInt32("TariffID"),
-                    ConsumedVolume = reader.GetDecimal("ConsumedVolume"),
-                    Amount = reader.GetDecimal("Amount"),
-                    PaymentDate = reader.GetDateTime("PaymentDate"),
-                    IsPaid = reader.GetBoolean("IsPaid"),
-                    TariffName = reader.GetString("TariffName"),
-                    ServiceName = reader.GetString("ServiceName"),
-                    Street = reader.GetString("Street"),
-                    House = reader.GetString("House"),
-                    Apartment = reader.IsDBNull(reader.GetOrdinal("Apartment")) ? null : reader.GetString("Apartment"),
-                    ClientName = $"{reader.GetString("FirstName")} {reader.GetString("LastName")}"
-                });
+                System.Diagnostics.Debug.WriteLine($"Ошибка создания тестовых счетов: {ex.Message}");
+                // Не бросаем исключение, чтобы не ломать приложение
             }
-
-            return bills;
-        }
-
-        public async Task MarkBillAsPaidAsync(int billId)
-        {
-            using var connection = await _dbConnection.GetConnectionAsync();
-            var sql = "UPDATE Bills SET IsPaid = true WHERE BillID = @BillID";
-
-            using var cmd = new NpgsqlCommand(sql, connection);
-            cmd.Parameters.AddWithValue("@BillID", billId);
-
-            await cmd.ExecuteNonQueryAsync();
         }
 
         public async Task<List<Bill>> GetBillsAsync()
         {
-            // Временная реализация для совместимости
-            return await Task.FromResult(new List<Bill>());
+            var bills = new List<Bill>();
+
+            try
+            {
+                using (var connection = await _dbConnection.GetConnectionAsync())
+                {
+                    var query = @"
+                        SELECT 
+                            b.bill_id as BillID,
+                            b.address_id as AddressID,
+                            b.service_id as ServiceID,
+                            b.amount as Amount,
+                            b.issue_date as IssueDate,
+                            b.payment_date as PaymentDate,
+                            b.is_paid as IsPaid,
+                            a.address_id,
+                            a.street as Street,
+                            a.house as House,
+                            a.apartment as Apartment,
+                            a.living_area as LivingArea,
+                            a.residents_count as ResidentsCount,
+                            s.service_id,
+                            s.service_name as ServiceName,
+                            s.service_type as ServiceType,
+                            c.client_id,
+                            c.first_name as FirstName,
+                            c.last_name as LastName
+                        FROM bills b
+                        LEFT JOIN addresses a ON b.address_id = a.address_id
+                        LEFT JOIN services s ON b.service_id = s.service_id
+                        LEFT JOIN clients c ON a.client_id = c.client_id
+                        ORDER BY b.issue_date DESC";
+
+                    using (var command = new NpgsqlCommand(query, connection))
+                    using (var reader = await command.ExecuteReaderAsync())
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            var bill = new Bill
+                            {
+                                BillID = reader.GetInt32("BillID"),
+                                AddressID = reader.GetInt32("AddressID"),
+                                ServiceID = reader.GetInt32("ServiceID"),
+                                Amount = reader.GetDecimal("Amount"),
+                                IssueDate = reader.GetDateTime("IssueDate"),
+                                PaymentDate = reader.IsDBNull("PaymentDate") ? null : reader.GetDateTime("PaymentDate"),
+                                IsPaid = reader.GetBoolean("IsPaid"),
+                                Address = new Address
+                                {
+                                    AddressID = reader.GetInt32("address_id"),
+                                    Street = reader.GetString("Street"),
+                                    House = reader.GetString("House"),
+                                    Apartment = reader.IsDBNull("Apartment") ? null : reader.GetString("Apartment"),
+                                    LivingArea = reader.GetDecimal("LivingArea"),
+                                    ResidentsCount = reader.GetInt32("ResidentsCount"),
+                                    Client = new Client
+                                    {
+                                        ClientID = reader.GetInt32("client_id"),
+                                        FirstName = reader.GetString("FirstName"),
+                                        LastName = reader.GetString("LastName")
+                                    }
+                                },
+                                Service = new Service
+                                {
+                                    ServiceID = reader.GetInt32("service_id"),
+                                    ServiceName = reader.GetString("ServiceName"),
+                                    ServiceType = reader.GetString("ServiceType")
+                                }
+                            };
+                            bills.Add(bill);
+                        }
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Ошибка загрузки счетов: {ex.Message}");
+            }
+
+            return bills;
         }
+
+        public async Task<int> AddBillAsync(Bill bill)
+        {
+            try
+            {
+                using (var connection = await _dbConnection.GetConnectionAsync())
+                {
+                    var query = @"
+                        INSERT INTO bills (address_id, service_id, amount, issue_date, payment_date, is_paid)
+                        VALUES (@AddressID, @ServiceID, @Amount, @IssueDate, @PaymentDate, @IsPaid)
+                        RETURNING bill_id";
+
+                    using (var command = new NpgsqlCommand(query, connection))
+                    {
+                        command.Parameters.AddWithValue("@AddressID", bill.AddressID);
+                        command.Parameters.AddWithValue("@ServiceID", bill.ServiceID);
+                        command.Parameters.AddWithValue("@Amount", bill.Amount);
+                        command.Parameters.AddWithValue("@IssueDate", bill.IssueDate);
+                        command.Parameters.AddWithValue("@PaymentDate", bill.PaymentDate ?? (object)DBNull.Value);
+                        command.Parameters.AddWithValue("@IsPaid", bill.IsPaid);
+
+                        var newId = await command.ExecuteScalarAsync();
+                        return (int)(long)newId;
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                throw new System.Exception($"Ошибка добавления счета: {ex.Message}", ex);
+            }
+        }
+
+        public async Task<bool> DeleteBillAsync(int billId)
+        {
+            try
+            {
+                using (var connection = await _dbConnection.GetConnectionAsync())
+                {
+                    var query = "DELETE FROM bills WHERE bill_id = @BillID";
+                    using (var command = new NpgsqlCommand(query, connection))
+                    {
+                        command.Parameters.AddWithValue("@BillID", billId);
+                        var rowsAffected = await command.ExecuteNonQueryAsync();
+                        return rowsAffected > 0;
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                throw new System.Exception($"Ошибка удаления счета: {ex.Message}", ex);
+            }
+        }
+
+        public async Task<bool> MarkBillAsPaidAsync(int billId)
+        {
+            try
+            {
+                using (var connection = await _dbConnection.GetConnectionAsync())
+                {
+                    var query = @"
+                        UPDATE bills 
+                        SET is_paid = true, payment_date = @PaymentDate 
+                        WHERE bill_id = @BillID";
+
+                    using (var command = new NpgsqlCommand(query, connection))
+                    {
+                        command.Parameters.AddWithValue("@BillID", billId);
+                        command.Parameters.AddWithValue("@PaymentDate", System.DateTime.Now);
+                        var rowsAffected = await command.ExecuteNonQueryAsync();
+                        return rowsAffected > 0;
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                throw new System.Exception($"Ошибка отметки счета как оплаченного: {ex.Message}", ex);
+            }
+        }
+
+        // Синхронные методы для обратной совместимости
+        public List<Bill> GetBills() => GetBillsAsync().GetAwaiter().GetResult();
+
+        public void AddBill(Bill bill) => AddBillAsync(bill).GetAwaiter().GetResult();
+
+        public void DeleteBill(int billId) => DeleteBillAsync(billId).GetAwaiter().GetResult();
+
+        public void InitializeSampleData() => InitializeSampleDataAsync().GetAwaiter().GetResult();
     }
 }

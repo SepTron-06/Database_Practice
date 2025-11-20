@@ -62,14 +62,14 @@ namespace WinFormsDB.Data
 
             // Создание таблицы Bills
             var createBillsTable = @"
-            CREATE TABLE IF NOT EXISTS Bills (
-                BillID SERIAL PRIMARY KEY,
-                AddressID INTEGER NOT NULL REFERENCES Addresses(AddressID) ON DELETE CASCADE,
-                TariffID INTEGER NOT NULL REFERENCES Tariffs(TariffID) ON DELETE CASCADE,
-                ConsumedVolume DECIMAL(10,2) NOT NULL,
-                Amount DECIMAL(10,2) NOT NULL,
-                PaymentDate TIMESTAMP NOT NULL,
-                IsPaid BOOLEAN NOT NULL DEFAULT false
+            CREATE TABLE IF NOT EXISTS bills (
+                bill_id SERIAL PRIMARY KEY,
+                address_id INTEGER NOT NULL REFERENCES addresses(address_id) ON DELETE CASCADE,
+                service_id INTEGER NOT NULL REFERENCES services(service_id) ON DELETE CASCADE,
+                amount DECIMAL(10,2) NOT NULL,
+                issue_date DATE NOT NULL,
+                payment_date DATE NULL,
+                is_paid BOOLEAN NOT NULL DEFAULT false
             )";
 
             using var transaction = await connection.BeginTransactionAsync();
@@ -99,6 +99,48 @@ namespace WinFormsDB.Data
             }
         }
 
+        // ДОБАВЛЕННЫЙ МЕТОД для проверки существования таблицы
+        public async Task<bool> CheckTableExistsAsync(string tableName)
+        {
+            using var connection = await _dbConnection.GetConnectionAsync();
 
+            var query = @"
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_name = @tableName
+                )";
+
+            using var command = new NpgsqlCommand(query, connection);
+            command.Parameters.AddWithValue("@tableName", tableName.ToLower());
+
+            return (bool)await command.ExecuteScalarAsync();
+        }
+
+        public async Task ValidateTableStructureAsync()
+        {
+            using var connection = await _dbConnection.GetConnectionAsync();
+
+            // Проверяем основные таблицы
+            var checkTables = @"
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                AND table_name IN ('clients', 'services', 'addresses', 'tariffs', 'bills')";
+
+            using var command = new NpgsqlCommand(checkTables, connection);
+            using var reader = await command.ExecuteReaderAsync();
+
+            var tables = new List<string>();
+            while (await reader.ReadAsync())
+            {
+                tables.Add(reader.GetString(0));
+            }
+
+            if (tables.Count < 5)
+            {
+                throw new Exception("Не все таблицы были созданы успешно");
+            }
+        }
     }
 }

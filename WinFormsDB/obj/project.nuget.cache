@@ -1,12 +1,25 @@
 {
   "version": 2,
-  "dgSpecHash": "vI580t4vu/I=",
+  "dgSpecHash": "7SzPdWDnqvk=",
   "success": true,
   "projectFilePath": "D:\\GitHub\\Database_Practice\\WinFormsDB\\WinFormsDB.csproj",
   "expectedPackageFiles": [
-    "C:\\Users\\Александр\\.nuget\\packages\\microsoft.extensions.dependencyinjection.abstractions\\8.0.2\\microsoft.extensions.dependencyinjection.abstractions.8.0.2.nupkg.sha512",
-    "C:\\Users\\Александр\\.nuget\\packages\\microsoft.extensions.logging.abstractions\\8.0.2\\microsoft.extensions.logging.abstractions.8.0.2.nupkg.sha512",
-    "C:\\Users\\Александр\\.nuget\\packages\\npgsql\\9.0.4\\npgsql.9.0.4.nupkg.sha512"
+    "C:\\Users\\Александр\\.nuget\\packages\\microsoft.extensions.dependencyinjection.abstractions\\8.0.0\\microsoft.extensions.dependencyinjection.abstractions.8.0.0.nupkg.sha512",
+    "C:\\Users\\Александр\\.nuget\\packages\\microsoft.extensions.logging.abstractions\\8.0.0\\microsoft.extensions.logging.abstractions.8.0.0.nupkg.sha512",
+    "C:\\Users\\Александр\\.nuget\\packages\\npgsql\\8.0.0\\npgsql.8.0.0.nupkg.sha512"
   ],
-  "logs": []
+  "logs": [
+    {
+      "code": "NU1903",
+      "level": "Warning",
+      "message": "У пакета \"Npgsql\" 8.0.0 есть известная уязвимость https://github.com/advisories/GHSA-x9vc-6hfv-hg8c (уровень серьезности: высокий)",
+      "projectPath": "D:\\GitHub\\Database_Practice\\WinFormsDB\\WinFormsDB.csproj",
+      "warningLevel": 1,
+      "filePath": "D:\\GitHub\\Database_Practice\\WinFormsDB\\WinFormsDB.csproj",
+      "libraryId": "Npgsql",
+      "targetGraphs": [
+        "net8.0-windows7.0"
+      ]
+    }
+  ]
 }
