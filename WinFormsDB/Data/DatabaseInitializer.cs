@@ -20,61 +20,72 @@ namespace WinFormsDB.Data
         {
             using var connection = await _dbConnection.GetConnectionAsync();
 
-            // Создание таблицы Clients
+            // УДАЛЯЕМ ВСЕ ТАБЛИЦЫ В ПРАВИЛЬНОМ ПОРЯДКЕ
+            var dropTables = @"
+        DROP TABLE IF EXISTS bills CASCADE;
+        DROP TABLE IF EXISTS tariffs CASCADE;
+        DROP TABLE IF EXISTS addresses CASCADE;
+        DROP TABLE IF EXISTS services CASCADE;
+        DROP TABLE IF EXISTS clients CASCADE;";
+
+            // СОЗДАЕМ ТАБЛИЦЫ ЗАНОВО
             var createClientsTable = @"
-            CREATE TABLE IF NOT EXISTS Clients (
-                ClientID SERIAL PRIMARY KEY,
-                FirstName VARCHAR(50) NOT NULL,
-                LastName VARCHAR(50) NOT NULL,
-                Phone VARCHAR(20),
-                Email VARCHAR(100)
-            )";
+        CREATE TABLE clients (
+            client_id SERIAL PRIMARY KEY,
+            first_name VARCHAR(50) NOT NULL,
+            last_name VARCHAR(50) NOT NULL,
+            phone VARCHAR(20),
+            email VARCHAR(100)
+        )";
 
-            // Создание таблицы Services
             var createServicesTable = @"
-            CREATE TABLE IF NOT EXISTS Services (
-                ServiceID SERIAL PRIMARY KEY,
-                ServiceName VARCHAR(100) NOT NULL,
-                ServiceType VARCHAR(50) NOT NULL
-            )";
+        CREATE TABLE services (
+            service_id SERIAL PRIMARY KEY,
+            service_name VARCHAR(100) NOT NULL,
+            service_type VARCHAR(50) NOT NULL
+        )";
 
-            // Создание таблицы Addresses
             var createAddressesTable = @"
-            CREATE TABLE IF NOT EXISTS Addresses (
-                AddressID SERIAL PRIMARY KEY,
-                ClientID INTEGER NOT NULL REFERENCES Clients(ClientID) ON DELETE CASCADE,
-                Street VARCHAR(100) NOT NULL,
-                House VARCHAR(10) NOT NULL,
-                Apartment VARCHAR(10),
-                LivingArea DECIMAL(10,2) NOT NULL,
-                ResidentsCount INTEGER NOT NULL
-            )";
+        CREATE TABLE addresses (
+            address_id SERIAL PRIMARY KEY,
+            client_id INTEGER NOT NULL REFERENCES clients(client_id) ON DELETE CASCADE,
+            street VARCHAR(100) NOT NULL,
+            house VARCHAR(10) NOT NULL,
+            apartment VARCHAR(10),
+            living_area DECIMAL(10,2) NOT NULL,
+            residents_count INTEGER NOT NULL
+        )";
 
-            // Создание таблицы Tariffs
             var createTariffsTable = @"
-            CREATE TABLE IF NOT EXISTS Tariffs (
-                TariffID SERIAL PRIMARY KEY,
-                ServiceID INTEGER NOT NULL REFERENCES Services(ServiceID) ON DELETE CASCADE,
-                TariffName VARCHAR(100) NOT NULL,
-                Rate DECIMAL(10,4) NOT NULL,
-                Unit VARCHAR(20) NOT NULL
-            )";
+        CREATE TABLE tariffs (
+            tariff_id SERIAL PRIMARY KEY,
+            service_id INTEGER NOT NULL REFERENCES services(service_id) ON DELETE CASCADE,
+            service_name VARCHAR(100) NOT NULL,
+            price_per_square_meter DECIMAL(10,4) DEFAULT 0,
+            price_per_person DECIMAL(10,4) DEFAULT 0,
+            price_per_unit DECIMAL(10,4) DEFAULT 0
+        )";
 
-            // Создание таблицы Bills
+            // ИСПРАВЛЕННАЯ таблица bills - использует tariff_id вместо service_id
             var createBillsTable = @"
-            CREATE TABLE IF NOT EXISTS bills (
-                bill_id SERIAL PRIMARY KEY,
-                address_id INTEGER NOT NULL REFERENCES addresses(address_id) ON DELETE CASCADE,
-                service_id INTEGER NOT NULL REFERENCES services(service_id) ON DELETE CASCADE,
-                amount DECIMAL(10,2) NOT NULL,
-                issue_date DATE NOT NULL,
-                payment_date DATE NULL,
-                is_paid BOOLEAN NOT NULL DEFAULT false
-            )";
+        CREATE TABLE bills (
+            bill_id SERIAL PRIMARY KEY,
+            address_id INTEGER NOT NULL REFERENCES addresses(address_id) ON DELETE CASCADE,
+            tariff_id INTEGER NOT NULL REFERENCES tariffs(tariff_id) ON DELETE CASCADE,
+            amount DECIMAL(10,2) NOT NULL,
+            issue_date DATE NOT NULL,
+            payment_date DATE NULL,
+            is_paid BOOLEAN NOT NULL DEFAULT false
+        )";
 
             using var transaction = await connection.BeginTransactionAsync();
             try
             {
+                // Удаляем таблицы
+                using var dropCmd = new NpgsqlCommand(dropTables, connection, transaction);
+                await dropCmd.ExecuteNonQueryAsync();
+
+                // Создаем таблицы заново
                 using var cmd1 = new NpgsqlCommand(createClientsTable, connection, transaction);
                 await cmd1.ExecuteNonQueryAsync();
 
@@ -91,15 +102,16 @@ namespace WinFormsDB.Data
                 await cmd5.ExecuteNonQueryAsync();
 
                 await transaction.CommitAsync();
+                Console.WriteLine("Все таблицы успешно пересозданы с новой структурой");
             }
-            catch
+            catch (Exception ex)
             {
                 await transaction.RollbackAsync();
+                Console.WriteLine($"Ошибка пересоздания таблиц: {ex.Message}");
                 throw;
             }
         }
 
-        // ДОБАВЛЕННЫЙ МЕТОД для проверки существования таблицы
         public async Task<bool> CheckTableExistsAsync(string tableName)
         {
             using var connection = await _dbConnection.GetConnectionAsync();
@@ -121,7 +133,6 @@ namespace WinFormsDB.Data
         {
             using var connection = await _dbConnection.GetConnectionAsync();
 
-            // Проверяем основные таблицы
             var checkTables = @"
                 SELECT table_name 
                 FROM information_schema.tables 

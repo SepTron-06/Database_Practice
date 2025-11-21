@@ -1,16 +1,17 @@
-﻿using WinFormsDB.Data;
+﻿using Npgsql;
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Drawing;
+using System.Linq;
+using System.Net.Mail;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using WinFormsDB.Data;
+using WinFormsDB.Models;
 using WinFormsDB.Repositories;
 using WinFormsDB.Services;
-using WinFormsDB.Models;
-using System.Windows.Forms;
-using System.Drawing;
-using System.ComponentModel;
-using System.Collections.Generic;
-using System.Linq;
-using System;
-using System.Text.RegularExpressions;
-using System.Net.Mail;
-using System.Threading.Tasks;
 
 namespace WinFormsDB.Forms
 {
@@ -72,7 +73,9 @@ namespace WinFormsDB.Forms
                 }
 
                 // После создания таблиц инициализируем тестовые данные в BillRepository
-                await _billRepository.InitializeSampleDataAsync();
+                // Теперь используем автоматическую инициализацию через конструктор
+                // BillRepository уже автоматически инициализировал данные через InitializeDataAsync()
+                System.Diagnostics.Debug.WriteLine("База данных инициализирована, BillRepository загружен");
             }
             catch (Exception ex)
             {
@@ -575,23 +578,24 @@ namespace WinFormsDB.Forms
             {
                 Name = "BillID",
                 DataPropertyName = "BillID",
-                HeaderText = "ID",
-                Width = 50
+                HeaderText = "№ Счета",
+                Width = 80
             });
 
-            // Заменяем ClientID на информацию об адресе
+            // Комбинированный адрес
             dataGridViewBills.Columns.Add(new DataGridViewTextBoxColumn
             {
-                Name = "AddressInfo",
+                Name = "FullAddress",
                 HeaderText = "Адрес",
                 Width = 200
             });
 
+            // Название услуги из тарифа
             dataGridViewBills.Columns.Add(new DataGridViewTextBoxColumn
             {
                 Name = "ServiceName",
                 HeaderText = "Услуга",
-                Width = 120
+                Width = 180
             });
 
             dataGridViewBills.Columns.Add(new DataGridViewTextBoxColumn
@@ -629,26 +633,36 @@ namespace WinFormsDB.Forms
                 Width = 70
             });
 
-            // Настраиваем отображение адреса и услуги
+            // Настраиваем отображение комбинированного адреса и названия услуги
             dataGridViewBills.CellFormatting += (s, e) =>
             {
-                if (e.RowIndex >= 0)
+                if (e.RowIndex >= 0 && e.RowIndex < dataGridViewBills.Rows.Count)
                 {
                     var bill = dataGridViewBills.Rows[e.RowIndex].DataBoundItem as Bill;
                     if (bill != null)
                     {
-                        if (e.ColumnIndex == dataGridViewBills.Columns["AddressInfo"].Index)
+                        if (e.ColumnIndex == dataGridViewBills.Columns["FullAddress"].Index)
                         {
-                            var address = bill.Address;
-                            if (address != null)
+                            // Безопасное формирование адреса
+                            var addressParts = new List<string>();
+
+                            if (bill.Address != null)
                             {
-                                e.Value = $"{address.Street}, {address.House}{(string.IsNullOrEmpty(address.Apartment) ? "" : $", кв. {address.Apartment}")}";
-                                e.FormattingApplied = true;
+                                if (!string.IsNullOrEmpty(bill.Address.Street))
+                                    addressParts.Add(bill.Address.Street);
+                                if (!string.IsNullOrEmpty(bill.Address.House))
+                                    addressParts.Add($"д. {bill.Address.House}");
+                                if (!string.IsNullOrEmpty(bill.Address.Apartment))
+                                    addressParts.Add($"кв. {bill.Address.Apartment}");
                             }
+
+                            e.Value = addressParts.Any() ? string.Join(", ", addressParts) : "Адрес не указан";
+                            e.FormattingApplied = true;
                         }
                         else if (e.ColumnIndex == dataGridViewBills.Columns["ServiceName"].Index)
                         {
-                            e.Value = bill.Service?.ServiceName ?? "Не указана";
+                            // Безопасное получение названия услуги
+                            e.Value = bill.Tariff?.ServiceName ?? "Услуга не указана";
                             e.FormattingApplied = true;
                         }
                     }
@@ -714,13 +728,19 @@ namespace WinFormsDB.Forms
                         return;
                     }
 
-                    cmbAddress.DisplayMember = "DisplayAddressWithClient";
-                    cmbAddress.ValueMember = "AddressID";
-                    cmbAddress.DataSource = addresses.Select(a => new
+                    // Используем ComboBoxItem для хранения ID и отображаемого текста
+                    foreach (var address in addresses)
                     {
-                        a.AddressID,
-                        DisplayAddressWithClient = $"{a.Street}, {a.House}{(string.IsNullOrEmpty(a.Apartment) ? "" : $", кв. {a.Apartment}")} - {a.Client?.LastName} {a.Client?.FirstName}"
-                    }).ToList();
+                        var displayText = $"{address.Street}, {address.House}{(string.IsNullOrEmpty(address.Apartment) ? "" : $", кв. {address.Apartment}")} - {address.Client?.LastName} {address.Client?.FirstName}";
+                        cmbAddress.Items.Add(new ComboBoxItem
+                        {
+                            Text = displayText,
+                            Value = address.AddressID
+                        });
+                    }
+
+                    cmbAddress.DisplayMember = "Text";
+                    cmbAddress.ValueMember = "Value";
                 }
                 catch (Exception ex)
                 {
@@ -729,15 +749,15 @@ namespace WinFormsDB.Forms
                     return;
                 }
 
-                // Выпадающий список для выбора услуги
-                var lblService = new Label
+                // ВЫПАДАЮЩИЙ СПИСОК ДЛЯ ВЫБОРА ТАРИФА
+                var lblTariff = new Label
                 {
-                    Text = "Услуга:*",
+                    Text = "Тариф:*",
                     Location = new Point(20, 60),
                     Width = 120,
                     Font = new Font("Arial", 9, FontStyle.Bold)
                 };
-                var cmbService = new ComboBox
+                var cmbTariff = new ComboBox
                 {
                     Location = new Point(150, 58),
                     Width = 300,
@@ -745,26 +765,56 @@ namespace WinFormsDB.Forms
                     DropDownStyle = ComboBoxStyle.DropDownList
                 };
 
-                // Заполняем комбобокс услугами
+                // Заполняем комбобокс тарифами
                 try
                 {
-                    var services = _serviceRepository.GetServices();
-                    if (services.Count == 0)
+                    var tariffs = _tariffRepository.GetTariffs();
+                    if (tariffs.Count == 0)
                     {
-                        MessageBox.Show("Нет доступных услуг. Сначала добавьте услугу.", "Внимание",
+                        MessageBox.Show("Нет доступных тарифов. Сначала добавьте тариф.", "Внимание",
                             MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         return;
                     }
 
-                    cmbService.DisplayMember = "ServiceName";
-                    cmbService.ValueMember = "ServiceID";
-                    cmbService.DataSource = services;
+                    // Используем ComboBoxItem для хранения ID и отображаемого текста
+                    foreach (var tariff in tariffs)
+                    {
+                        string tariffType = GetTariffType(tariff);
+                        string price = GetPrice(tariff);
+                        var displayText = $"{tariff.ServiceName} - {tariffType} - {price}";
+
+                        cmbTariff.Items.Add(new ComboBoxItem
+                        {
+                            Text = displayText,
+                            Value = tariff.TariffID
+                        });
+                    }
+
+                    cmbTariff.DisplayMember = "Text";
+                    cmbTariff.ValueMember = "Value";
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show($"Ошибка загрузки услуг: {ex.Message}", "Ошибка",
+                    MessageBox.Show($"Ошибка загрузки тарифов: {ex.Message}", "Ошибка",
                         MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
+                }
+
+                // Вспомогательные методы для отображения тарифов
+                string GetTariffType(Tariff tariff)
+                {
+                    if (tariff.PricePerSquareMeter > 0) return "За кв.м";
+                    if (tariff.PricePerPerson > 0) return "За человека";
+                    if (tariff.PricePerUnit > 0) return "За объем";
+                    return "Не определен";
+                }
+
+                string GetPrice(Tariff tariff)
+                {
+                    if (tariff.PricePerSquareMeter > 0) return $"{tariff.PricePerSquareMeter:C2}/м²";
+                    if (tariff.PricePerPerson > 0) return $"{tariff.PricePerPerson:C2}/чел";
+                    if (tariff.PricePerUnit > 0) return $"{tariff.PricePerUnit:C2}/ед";
+                    return "0";
                 }
 
                 // Поле для суммы
@@ -888,7 +938,7 @@ namespace WinFormsDB.Forms
                 {
                     HideError();
 
-                    // Проверяем адрес вместо клиента
+                    // Проверяем адрес
                     if (cmbAddress.SelectedItem == null)
                     {
                         ShowError("Выберите адрес");
@@ -896,10 +946,11 @@ namespace WinFormsDB.Forms
                         return false;
                     }
 
-                    if (cmbService.SelectedItem == null)
+                    // Проверяем тариф
+                    if (cmbTariff.SelectedItem == null)
                     {
-                        ShowError("Выберите услугу");
-                        cmbService.Focus();
+                        ShowError("Выберите тариф");
+                        cmbTariff.Focus();
                         return false;
                     }
 
@@ -940,19 +991,31 @@ namespace WinFormsDB.Forms
                         btnSave.Text = "Сохранение...";
                         btnCancel.Enabled = false;
 
-                        var selectedAddress = (dynamic)cmbAddress.SelectedItem;
-                        var selectedService = (Service)cmbService.SelectedItem;
+                        // Получаем выбранные ID из комбобоксов
+                        var selectedAddressItem = cmbAddress.SelectedItem as ComboBoxItem;
+                        var selectedTariffItem = cmbTariff.SelectedItem as ComboBoxItem;
 
+                        if (selectedAddressItem == null || selectedTariffItem == null)
+                        {
+                            ShowError("Ошибка получения выбранных данных");
+                            return;
+                        }
+
+                        var addressId = selectedAddressItem.Value;
+                        var tariffId = selectedTariffItem.Value;
+
+                        // Создаем объект счета
                         var bill = new Bill
                         {
-                            AddressID = selectedAddress.AddressID,
-                            ServiceID = selectedService.ServiceID,
+                            AddressID = addressId,
+                            TariffID = tariffId,
                             Amount = txtAmount.Value,
                             IssueDate = dtpIssueDate.Value,
                             PaymentDate = chkIsPaid.Checked ? dtpPaymentDate.Value : (DateTime?)null,
                             IsPaid = chkIsPaid.Checked
                         };
 
+                        // ИСПРАВЛЕНИЕ: Используем репозиторий для добавления счета
                         var newBillId = await _billRepository.AddBillAsync(bill);
 
                         addForm.DialogResult = DialogResult.OK;
@@ -984,7 +1047,7 @@ namespace WinFormsDB.Forms
                 }
 
                 cmbAddress.SelectedIndexChanged += HideErrorOnChange;
-                cmbService.SelectedIndexChanged += HideErrorOnChange;
+                cmbTariff.SelectedIndexChanged += HideErrorOnChange;
                 txtAmount.ValueChanged += HideErrorOnChange;
                 dtpIssueDate.ValueChanged += HideErrorOnChange;
                 dtpPaymentDate.ValueChanged += HideErrorOnChange;
@@ -996,7 +1059,7 @@ namespace WinFormsDB.Forms
                 addForm.Controls.AddRange(new Control[]
                 {
             lblAddress, cmbAddress,
-            lblService, cmbService,
+            lblTariff, cmbTariff,
             lblAmount, txtAmount,
             lblIssueDate, dtpIssueDate,
             lblPaymentDate, dtpPaymentDate,
@@ -1010,8 +1073,8 @@ namespace WinFormsDB.Forms
                 if (cmbAddress.Items.Count > 0)
                     cmbAddress.SelectedIndex = 0;
 
-                if (cmbService.Items.Count > 0)
-                    cmbService.SelectedIndex = 0;
+                if (cmbTariff.Items.Count > 0)
+                    cmbTariff.SelectedIndex = 0;
 
                 addForm.ShowDialog();
             }
@@ -1021,7 +1084,81 @@ namespace WinFormsDB.Forms
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
+        //public async Task<int> AddBillAsync(Bill bill)
+        //{
+        //    try
+        //    {
+        //        // Проверяем существование адреса и тарифа
+        //        var addressExists = await CheckAddressExistsAsync(bill.AddressID);
+        //        var tariffExists = await CheckTariffExistsAsync(bill.TariffID);
 
+        //        if (!addressExists)
+        //            throw new System.Exception($"Адрес с ID {bill.AddressID} не существует");
+
+        //        if (!tariffExists)
+        //            throw new System.Exception($"Тариф с ID {bill.TariffID} не существует");
+
+        //        // Добавляем в память
+        //        var newId = _bills.Count > 0 ? _bills.Max(b => b.BillID) + 1 : 1;
+        //        bill.BillID = newId;
+
+        //        // Загружаем связанные данные для отображения
+        //        await   LoadRelatedDataForDisplayAsync(bill);
+
+        //        _bills.Add(bill);
+
+        //        // Пытаемся сохранить в базу
+        //        _ = SaveBillToDatabaseAsync(bill);
+
+        //        return newId;
+        //    }
+        //    catch (System.Exception ex)
+        //    {
+        //        throw new System.Exception($"Ошибка добавления счета: {ex.Message}", ex);
+        //    }
+        //}
+
+        private async Task<bool> CheckAddressExistsAsync(int addressId)
+        {
+            try
+            {
+                using (var connection = await _dbConnection.GetConnectionAsync())
+                {
+                    var query = "SELECT 1 FROM addresses WHERE address_id = @AddressID";
+                    using (var command = new NpgsqlCommand(query, connection))
+                    {
+                        command.Parameters.AddWithValue("@AddressID", addressId);
+                        var result = await command.ExecuteScalarAsync();
+                        return result != null;
+                    }
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private async Task<bool> CheckTariffExistsAsync(int tariffId)
+        {
+            try
+            {
+                using (var connection = await _dbConnection.GetConnectionAsync())
+                {
+                    var query = "SELECT 1 FROM tariffs WHERE tariff_id = @TariffID";
+                    using (var command = new NpgsqlCommand(query, connection))
+                    {
+                        command.Parameters.AddWithValue("@TariffID", tariffId);
+                        var result = await command.ExecuteScalarAsync();
+                        return result != null;
+                    }
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
         private async Task DeleteSelectedBillAsync()
         {
             if (dataGridViewBills?.SelectedRows.Count == 0)
@@ -1177,19 +1314,29 @@ namespace WinFormsDB.Forms
         {
             try
             {
-                var addressInfo = bill.Address != null ?
-                    $"{bill.Address.Street}, {bill.Address.House}{(string.IsNullOrEmpty(bill.Address.Apartment) ? "" : $", кв. {bill.Address.Apartment}")}" : "Не указан";
+                // Комбинированный адрес
+                var addressInfo = "Не указан";
+                if (bill.Address != null)
+                {
+                    var addressParts = new List<string>();
+                    if (!string.IsNullOrEmpty(bill.Address.Street))
+                        addressParts.Add(bill.Address.Street);
+                    if (!string.IsNullOrEmpty(bill.Address.House))
+                        addressParts.Add($"д. {bill.Address.House}");
+                    if (!string.IsNullOrEmpty(bill.Address.Apartment))
+                        addressParts.Add($"кв. {bill.Address.Apartment}");
 
-                var clientInfo = bill.Address?.Client != null ?
-                    $"{bill.Address.Client.LastName} {bill.Address.Client.FirstName}" : "Не указан";
+                    addressInfo = string.Join(", ", addressParts);
+                }
 
-                var serviceName = bill.Service?.ServiceName ?? "Не указана";
+                // Название услуги из тарифа
+                var serviceName = bill.Tariff?.ServiceName ?? "Не указана";
+
                 var paymentDate = bill.PaymentDate?.ToString("dd.MM.yyyy") ?? "Не оплачен";
                 var status = bill.IsPaid ? "Оплачен" : "Не оплачен";
 
                 var details = $"Счет №{bill.BillID}\n" +
                              $"Адрес: {addressInfo}\n" +
-                             $"Клиент: {clientInfo}\n" +
                              $"Услуга: {serviceName}\n" +
                              $"Сумма: {bill.Amount:C2}\n" +
                              $"Дата выдачи: {bill.IssueDate:dd.MM.yyyy}\n" +
@@ -2668,51 +2815,51 @@ namespace WinFormsDB.Forms
                 }
 
                 // Обработчик сохранения
-                  btnSave.Click += async (s, e) =>
-        {
-            if (!ValidateForm())
-                return;
-
-            try
-            {
-                btnSave.Enabled = false;
-                btnCancel.Enabled = false;
-                btnSave.Text = "Сохранение...";
-
-                var selectedClient = (dynamic)cmbClient.SelectedItem;
-
-                var address = new Address
+                btnSave.Click += async (s, e) =>
                 {
-                    ClientID = selectedClient.ClientID,
-                    Client = selectedClient.ClientObject, // Сохраняем объект клиента
-                    Street = txtStreet.Text.Trim(),
-                    House = txtHouse.Text.Trim(),
-                    Apartment = string.IsNullOrWhiteSpace(txtApartment.Text) ? null : txtApartment.Text.Trim(),
-                    LivingArea = txtLivingArea.Value,
-                    ResidentsCount = (int)txtResidentsCount.Value
+                    if (!ValidateForm())
+                        return;
+
+                    try
+                    {
+                        btnSave.Enabled = false;
+                        btnCancel.Enabled = false;
+                        btnSave.Text = "Сохранение...";
+
+                        var selectedClient = (dynamic)cmbClient.SelectedItem;
+
+                        var address = new Address
+                        {
+                            ClientID = selectedClient.ClientID,
+                            Client = selectedClient.ClientObject, // Сохраняем объект клиента
+                            Street = txtStreet.Text.Trim(),
+                            House = txtHouse.Text.Trim(),
+                            Apartment = string.IsNullOrWhiteSpace(txtApartment.Text) ? null : txtApartment.Text.Trim(),
+                            LivingArea = txtLivingArea.Value,
+                            ResidentsCount = (int)txtResidentsCount.Value
+                        };
+
+                        // Сохраняем адрес в базу данных
+                        var newAddressId = await _addressRepository.AddAddressAsync(address);
+
+                        // Закрываем форму и обновляем таблицу
+                        addForm.DialogResult = DialogResult.OK;
+                        addForm.Close();
+
+                        // Обновляем таблицу адресов
+                        await LoadAddressesAsync();
+
+                        MessageBox.Show($"Адрес успешно добавлен! ID: {newAddressId}", "Успех",
+                            MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
+                    catch (Exception ex)
+                    {
+                        btnSave.Enabled = true;
+                        btnCancel.Enabled = true;
+                        btnSave.Text = "Сохранить";
+                        ShowError($"Ошибка сохранения: {ex.Message}");
+                    }
                 };
-
-                // Сохраняем адрес в базу данных
-                var newAddressId = await _addressRepository.AddAddressAsync(address);
-
-                // Закрываем форму и обновляем таблицу
-                addForm.DialogResult = DialogResult.OK;
-                addForm.Close();
-
-                // Обновляем таблицу адресов
-                await LoadAddressesAsync();
-
-                MessageBox.Show($"Адрес успешно добавлен! ID: {newAddressId}", "Успех",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            catch (Exception ex)
-            {
-                btnSave.Enabled = true;
-                btnCancel.Enabled = true;
-                btnSave.Text = "Сохранить";
-                ShowError($"Ошибка сохранения: {ex.Message}");
-            }
-        };
 
                 btnCancel.Click += (s, e) =>
                 {
@@ -3006,4 +3153,16 @@ namespace WinFormsDB.Forms
         }
         #endregion
     }
+    public class ComboBoxItem
+    {
+        public string Text { get; set; }
+        public int Value { get; set; }
+        public object Tag { get; set; }
+
+        public override string ToString()
+        {
+            return Text;
+        }
+    }
+
 }
