@@ -125,7 +125,7 @@ namespace WinFormsDB.Forms
             {
                 Text = "Подключиться",
                 Location = new Point(150, 235),
-                Size = new Size(100, 30),
+                Size = new Size(110, 30),
                 BackColor = Color.LightGreen,
                 Font = new Font("Arial", 9, FontStyle.Bold)
             };

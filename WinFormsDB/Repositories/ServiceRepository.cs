@@ -11,57 +11,14 @@ namespace WinFormsDB.Repositories
     public class ServiceRepository
     {
         private readonly DatabaseConnection _dbConnection;
-        private List<Service> _services;
 
         public ServiceRepository(DatabaseConnection dbConnection)
         {
             _dbConnection = dbConnection;
-            _services = new List<Service>();
-
-            // Инициализируем данные при создании репозитория
-            _ = InitializeDataAsync();
         }
 
-        private async Task InitializeDataAsync()
-        {
-            try
-            {
-                // Сначала пытаемся загрузить из базы данных
-                var servicesFromDb = await LoadServicesFromDatabaseAsync();
-                if (servicesFromDb.Any())
-                {
-                    _services = servicesFromDb;
-                }
-                else
-                {
-                    // Если в базе нет данных, создаем демо-данные и сохраняем в базу
-                    _services = GetDefaultServices();
-                    await SaveDefaultServicesToDatabaseAsync();
-                }
-            }
-            catch
-            {
-                // Если ошибка базы, используем только in-memory данные
-                _services = GetDefaultServices();
-            }
-        }
-
-        private List<Service> GetDefaultServices()
-        {
-            return new List<Service>
-            {
-                new Service { ServiceID = 1, ServiceName = "Подача холодной воды", ServiceType = "Водоснабжение" },
-                new Service { ServiceID = 2, ServiceName = "Подача горячей воды", ServiceType = "Водоснабжение" },
-                new Service { ServiceID = 3, ServiceName = "Подача газа в квартиру", ServiceType = "Газоснабжение" },
-                new Service { ServiceID = 4, ServiceName = "Подача электричества в квартиру", ServiceType = "Электроснабжение" },
-                new Service { ServiceID = 5, ServiceName = "Взнос на капитальный ремонт дома", ServiceType = "Капитальный ремонт" },
-                new Service { ServiceID = 6, ServiceName = "Обращение с ТКО", ServiceType = "Вывоз мусора" },
-                new Service { ServiceID = 7, ServiceName = "Отопление", ServiceType = "Теплоснабжение" },
-                new Service { ServiceID = 8, ServiceName = "Электронное запирающее устройство", ServiceType = "Электроснабжение" }
-            };
-        }
-
-        private async Task<List<Service>> LoadServicesFromDatabaseAsync()
+        // Основные методы работы с БД
+        public async Task<List<Service>> GetServicesAsync()
         {
             var services = new List<Service>();
 
@@ -89,64 +46,15 @@ namespace WinFormsDB.Repositories
                     }
                 }
             }
-            catch
+            catch (System.Exception ex)
             {
-                // Возвращаем пустой список при ошибке
+                throw new System.Exception($"Ошибка загрузки услуг из базы данных: {ex.Message}", ex);
             }
 
             return services;
         }
 
-        private async Task SaveDefaultServicesToDatabaseAsync()
-        {
-            try
-            {
-                // Убрали создание таблицы - предполагаем, что она уже создана в MainForm
-                using (var connection = await _dbConnection.GetConnectionAsync())
-                {
-                    foreach (var service in _services)
-                    {
-                        // Используем INSERT с обработкой конфликтов (если услуга уже существует)
-                        var query = @"
-                            INSERT INTO services (service_name, service_type)
-                            VALUES (@ServiceName, @ServiceType)
-                            ON CONFLICT (service_name) DO NOTHING";
-
-                        using (var command = new NpgsqlCommand(query, connection))
-                        {
-                            command.Parameters.AddWithValue("@ServiceName", service.ServiceName);
-                            command.Parameters.AddWithValue("@ServiceType", service.ServiceType);
-                            await command.ExecuteNonQueryAsync();
-                        }
-                    }
-                }
-            }
-            catch
-            {
-                // Игнорируем ошибки записи в базу
-            }
-        }
-
-        public async Task<List<Service>> GetServicesAsync()
-        {
-            // Возвращаем данные из памяти (быстро)
-            return await Task.FromResult(_services);
-        }
-
-        public async Task AddServiceAsync(Service service)
-        {
-            // Добавляем в память
-            var newId = _services.Count > 0 ? _services.Max(s => s.ServiceID) + 1 : 1;
-            service.ServiceID = newId;
-            _services.Add(service);
-
-            // Сохраняем в базу данных (асинхронно, не блокируем UI)
-            _ = SaveServiceToDatabaseAsync(service);
-
-            await Task.CompletedTask;
-        }
-
-        private async Task SaveServiceToDatabaseAsync(Service service)
+        public async Task<int> AddServiceAsync(Service service)
         {
             try
             {
@@ -154,104 +62,69 @@ namespace WinFormsDB.Repositories
                 {
                     var query = @"
                         INSERT INTO services (service_name, service_type)
-                        VALUES (@ServiceName, @ServiceType)";
+                        VALUES (@ServiceName, @ServiceType)
+                        RETURNING service_id";
 
                     using (var command = new NpgsqlCommand(query, connection))
                     {
                         command.Parameters.AddWithValue("@ServiceName", service.ServiceName);
                         command.Parameters.AddWithValue("@ServiceType", service.ServiceType);
-                        await command.ExecuteNonQueryAsync();
+
+                        var result = await command.ExecuteScalarAsync();
+                        return (int)result;
                     }
                 }
             }
-            catch
+            catch (System.Exception ex)
             {
-                // Игнорируем ошибки базы данных
+                throw new System.Exception($"Ошибка добавления услуги в базу данных: {ex.Message}", ex);
             }
         }
 
-        public async Task DeleteServiceAsync(int serviceId)
-        {
-            // Удаляем из памяти
-            var service = _services.FirstOrDefault(s => s.ServiceID == serviceId);
-            if (service != null)
-            {
-                _services.Remove(service);
-
-                // Удаляем из базы данных (асинхронно)
-                _ = DeleteServiceFromDatabaseAsync(serviceId);
-            }
-
-            await Task.CompletedTask;
-        }
-
-        private async Task DeleteServiceFromDatabaseAsync(int serviceId)
+        public async Task<bool> DeleteServiceAsync(int serviceId)
         {
             try
             {
                 using (var connection = await _dbConnection.GetConnectionAsync())
                 {
+                    // Сначала проверяем, есть ли связанные тарифы
+                    var checkQuery = "SELECT COUNT(*) FROM tariffs WHERE service_id = @ServiceID";
+                    using (var checkCommand = new NpgsqlCommand(checkQuery, connection))
+                    {
+                        checkCommand.Parameters.AddWithValue("@ServiceID", serviceId);
+                        var tariffCount = (long)await checkCommand.ExecuteScalarAsync();
+
+                        if (tariffCount > 0)
+                        {
+                            throw new System.Exception("Невозможно удалить услугу, так как с ней связаны тарифы. Сначала удалите связанные тарифы.");
+                        }
+                    }
+
                     var query = "DELETE FROM services WHERE service_id = @ServiceID";
                     using (var command = new NpgsqlCommand(query, connection))
                     {
                         command.Parameters.AddWithValue("@ServiceID", serviceId);
-                        await command.ExecuteNonQueryAsync();
+                        int rowsAffected = await command.ExecuteNonQueryAsync();
+                        return rowsAffected > 0;
                     }
                 }
             }
-            catch
+            catch (System.Exception ex)
             {
-                // Игнорируем ошибки базы данных
+                throw new System.Exception($"Ошибка удаления услуги из базы данных: {ex.Message}", ex);
             }
         }
 
-        // Синхронные методы для использования в формах
-        public List<Service> GetServices()
+        public async Task<bool> UpdateServiceAsync(Service service)
         {
-            return _services;
-        }
-
-        public void AddService(Service service)
-        {
-            var newId = _services.Count > 0 ? _services.Max(s => s.ServiceID) + 1 : 1;
-            service.ServiceID = newId;
-            _services.Add(service);
-
-            // Асинхронное сохранение в базу
-            _ = SaveServiceToDatabaseAsync(service);
-        }
-
-        public void DeleteService(int serviceId)
-        {
-            var service = _services.FirstOrDefault(s => s.ServiceID == serviceId);
-            if (service != null)
-            {
-                _services.Remove(service);
-
-                // Асинхронное удаление из базы
-                _ = DeleteServiceFromDatabaseAsync(serviceId);
-            }
-        }
-
-        // Дополнительные методы для работы с базой данных
-        public async Task UpdateServiceAsync(Service service)
-        {
-            // Обновляем в памяти
-            var existingService = _services.FirstOrDefault(s => s.ServiceID == service.ServiceID);
-            if (existingService != null)
-            {
-                existingService.ServiceName = service.ServiceName;
-                existingService.ServiceType = service.ServiceType;
-            }
-
-            // Обновляем в базе данных
             try
             {
                 using (var connection = await _dbConnection.GetConnectionAsync())
                 {
                     var query = @"
                         UPDATE services 
-                        SET service_name = @ServiceName, service_type = @ServiceType
+                        SET service_name = @ServiceName, 
+                            service_type = @ServiceType
                         WHERE service_id = @ServiceID";
 
                     using (var command = new NpgsqlCommand(query, connection))
@@ -259,34 +132,33 @@ namespace WinFormsDB.Repositories
                         command.Parameters.AddWithValue("@ServiceID", service.ServiceID);
                         command.Parameters.AddWithValue("@ServiceName", service.ServiceName);
                         command.Parameters.AddWithValue("@ServiceType", service.ServiceType);
-                        await command.ExecuteNonQueryAsync();
+
+                        int rowsAffected = await command.ExecuteNonQueryAsync();
+                        return rowsAffected > 0;
                     }
                 }
             }
-            catch
+            catch (System.Exception ex)
             {
-                // Игнорируем ошибки базы данных
+                throw new System.Exception($"Ошибка обновления услуги в базе данных: {ex.Message}", ex);
             }
         }
 
         public async Task<Service> GetServiceByIdAsync(int serviceId)
         {
-            // Ищем в памяти
-            var service = _services.FirstOrDefault(s => s.ServiceID == serviceId);
-            if (service != null)
-            {
-                return service;
-            }
-
-            // Если не нашли в памяти, ищем в базе
             try
             {
                 using (var connection = await _dbConnection.GetConnectionAsync())
                 {
-                    var query = "SELECT * FROM services WHERE service_id = @ServiceID";
+                    var query = @"
+                        SELECT service_id, service_name, service_type 
+                        FROM services 
+                        WHERE service_id = @ServiceID";
+
                     using (var command = new NpgsqlCommand(query, connection))
                     {
                         command.Parameters.AddWithValue("@ServiceID", serviceId);
+
                         using (var reader = await command.ExecuteReaderAsync())
                         {
                             if (await reader.ReadAsync())
@@ -302,33 +174,29 @@ namespace WinFormsDB.Repositories
                     }
                 }
             }
-            catch
+            catch (System.Exception ex)
             {
-                // Игнорируем ошибки
+                throw new System.Exception($"Ошибка загрузки услуги по ID: {ex.Message}", ex);
             }
 
             return null;
         }
 
-        // Метод для получения услуги по имени (полезно для тарифов)
         public async Task<Service> GetServiceByNameAsync(string serviceName)
         {
-            // Ищем в памяти
-            var service = _services.FirstOrDefault(s => s.ServiceName == serviceName);
-            if (service != null)
-            {
-                return service;
-            }
-
-            // Если не нашли в памяти, ищем в базе
             try
             {
                 using (var connection = await _dbConnection.GetConnectionAsync())
                 {
-                    var query = "SELECT * FROM services WHERE service_name = @ServiceName";
+                    var query = @"
+                        SELECT service_id, service_name, service_type 
+                        FROM services 
+                        WHERE service_name = @ServiceName";
+
                     using (var command = new NpgsqlCommand(query, connection))
                     {
                         command.Parameters.AddWithValue("@ServiceName", serviceName);
+
                         using (var reader = await command.ExecuteReaderAsync())
                         {
                             if (await reader.ReadAsync())
@@ -344,12 +212,94 @@ namespace WinFormsDB.Repositories
                     }
                 }
             }
-            catch
+            catch (System.Exception ex)
             {
-                // Игнорируем ошибки
+                throw new System.Exception($"Ошибка загрузки услуги по имени: {ex.Message}", ex);
             }
 
             return null;
+        }
+
+        public async Task<bool> ServiceExistsAsync(int serviceId)
+        {
+            try
+            {
+                using (var connection = await _dbConnection.GetConnectionAsync())
+                {
+                    var query = "SELECT 1 FROM services WHERE service_id = @ServiceID";
+                    using (var command = new NpgsqlCommand(query, connection))
+                    {
+                        command.Parameters.AddWithValue("@ServiceID", serviceId);
+                        var result = await command.ExecuteScalarAsync();
+                        return result != null;
+                    }
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public async Task<int> GetServicesCountAsync()
+        {
+            try
+            {
+                using (var connection = await _dbConnection.GetConnectionAsync())
+                {
+                    var query = "SELECT COUNT(*) FROM services";
+                    using (var command = new NpgsqlCommand(query, connection))
+                    {
+                        var result = await command.ExecuteScalarAsync();
+                        return Convert.ToInt32(result);
+                    }
+                }
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        // Синхронные методы для обратной совместимости
+        public List<Service> GetServices()
+        {
+            return GetServicesAsync().GetAwaiter().GetResult();
+        }
+
+        public int AddService(Service service)
+        {
+            return AddServiceAsync(service).GetAwaiter().GetResult();
+        }
+
+        public bool DeleteService(int serviceId)
+        {
+            return DeleteServiceAsync(serviceId).GetAwaiter().GetResult();
+        }
+
+        public bool UpdateService(Service service)
+        {
+            return UpdateServiceAsync(service).GetAwaiter().GetResult();
+        }
+
+        public Service GetServiceById(int serviceId)
+        {
+            return GetServiceByIdAsync(serviceId).GetAwaiter().GetResult();
+        }
+
+        public Service GetServiceByName(string serviceName)
+        {
+            return GetServiceByNameAsync(serviceName).GetAwaiter().GetResult();
+        }
+
+        public bool ServiceExists(int serviceId)
+        {
+            return ServiceExistsAsync(serviceId).GetAwaiter().GetResult();
+        }
+
+        public int GetServicesCount()
+        {
+            return GetServicesCountAsync().GetAwaiter().GetResult();
         }
     }
 }

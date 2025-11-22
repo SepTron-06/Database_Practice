@@ -11,91 +11,42 @@ namespace WinFormsDB.Repositories
     public class ClientRepository
     {
         private readonly DatabaseConnection _dbConnection;
-        private List<Client> _clients;
 
         public ClientRepository(DatabaseConnection dbConnection)
         {
             _dbConnection = dbConnection;
-            _clients = new List<Client>();
-
-            // Инициализация данных при создании репозитория
-            _ = InitializeDataAsync();
         }
 
-        private async Task InitializeDataAsync()
+        // Основные методы работы с БД
+        public async Task<List<Client>> GetClientsAsync()
         {
-            try
-            {
-                // Пытаемся загрузить клиентов из базы
-                await LoadClientsFromDatabaseAsync();
+            var clients = new List<Client>();
 
-                // Если в базе нет данных, создаем демо-клиентов
-                if (!_clients.Any())
-                {
-                    await CreateAndSaveDefaultClientsAsync();
-                }
-            }
-            catch
-            {
-                // При ошибке БД используем демо-данные
-                CreateDefaultClientsInMemory();
-            }
-        }
-
-        private void CreateDefaultClientsInMemory()
-        {
-            _clients = new List<Client>
-            {
-                new Client { ClientID = 1, FirstName = "Ярослав", LastName = "Зайцев", Phone = "7(959)506-97-48", Email = "Zaitsevyaroslav@mail.ru" },
-                new Client { ClientID = 2, FirstName = "Андрей", LastName = "Крюков", Phone = "7(959)489-61-02", Email = "KryukovAndrey@mail.ru" }
-            };
-        }
-
-        private async Task CreateAndSaveDefaultClientsAsync()
-        {
             try
             {
                 using (var connection = await _dbConnection.GetConnectionAsync())
                 {
-                    // Сбрасываем последовательность и вставляем данные с явными ID
-                    var resetAndInsertQuery = @"
-                        -- Сбрасываем последовательность
-                        ALTER SEQUENCE clients_clientid_seq RESTART WITH 1;
-                        
-                        -- Вставляем клиентов с явными ID
-                        INSERT INTO clients (clientid, firstname, lastname, phone, email) 
-                        VALUES 
-                        (1, 'Ярослав', 'Зайцев', '7(959)506-97-48', 'Zaitsevyaroslav@mail.ru'),
-                        (2, 'Андрей', 'Крюков', '7(959)489-61-02', 'KryukovAndrey@mail.ru');
-                        
-                        -- Устанавливаем последовательность на следующий доступный ID
-                        SELECT setval('clients_clientid_seq', (SELECT MAX(clientid) FROM clients));";
+                    // Простая проверка существования таблицы
+                    var checkTableQuery = @"
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'clients'
+                )";
 
-                    using (var command = new NpgsqlCommand(resetAndInsertQuery, connection))
+                    using (var checkCommand = new NpgsqlCommand(checkTableQuery, connection))
                     {
-                        await command.ExecuteNonQueryAsync();
+                        var tableExists = (bool)await checkCommand.ExecuteScalarAsync();
+                        if (!tableExists)
+                        {
+                            throw new Exception("Таблица 'clients' не существует в базе данных");
+                        }
                     }
-                }
 
-                // После сохранения загружаем данные из базы
-                await LoadClientsFromDatabaseAsync();
-            }
-            catch
-            {
-                // Если ошибка при сохранении в БД, создаем в памяти
-                CreateDefaultClientsInMemory();
-            }
-        }
-
-        private async Task LoadClientsFromDatabaseAsync()
-        {
-            try
-            {
-                var clients = new List<Client>();
-
-                using (var connection = await _dbConnection.GetConnectionAsync())
-                {
-                    var query = "SELECT clientid, firstname, lastname, phone, email FROM clients ORDER BY clientid";
+                    var query = @"
+                SELECT client_id, first_name, last_name, phone, email 
+                FROM clients 
+                ORDER BY client_id";
 
                     using (var command = new NpgsqlCommand(query, connection))
                     using (var reader = await command.ExecuteReaderAsync())
@@ -104,63 +55,34 @@ namespace WinFormsDB.Repositories
                         {
                             clients.Add(new Client
                             {
-                                ClientID = reader.GetInt32("clientid"),
-                                FirstName = reader.GetString("firstname"),
-                                LastName = reader.GetString("lastname"),
+                                ClientID = reader.GetInt32("client_id"),
+                                FirstName = reader.GetString("first_name"),
+                                LastName = reader.GetString("last_name"),
                                 Phone = reader.IsDBNull("phone") ? null : reader.GetString("phone"),
                                 Email = reader.IsDBNull("email") ? null : reader.GetString("email")
                             });
                         }
                     }
                 }
-
-                _clients = clients; // Заменяем весь список
             }
-            catch
+            catch (System.Exception ex)
             {
-                // При ошибке оставляем пустой список
-                _clients.Clear();
+                throw new System.Exception($"Ошибка загрузки клиентов из базы данных: {ex.Message}", ex);
             }
+
+            return clients;
         }
 
-        // Основные методы
-        public async Task<List<Client>> GetClientsAsync()
-        {
-            return await Task.FromResult(_clients);
-        }
-
-        public async Task AddClientAsync(Client client)
-        {
-            // Сначала сохраняем в базу, чтобы получить правильный ID
-            var newId = await SaveClientToDatabaseAsync(client);
-
-            // Затем добавляем в память с правильным ID
-            client.ClientID = newId;
-            _clients.Add(client);
-        }
-
-        public async Task DeleteClientAsync(int clientId)
-        {
-            var client = _clients.FirstOrDefault(c => c.ClientID == clientId);
-            if (client != null)
-            {
-                _clients.Remove(client);
-                // Удаляем из базы данных
-                await DeleteClientFromDatabaseAsync(clientId);
-            }
-        }
-
-        // Метод для сохранения в БД с возвратом нового ID
-        private async Task<int> SaveClientToDatabaseAsync(Client client)
+        public async Task<int> AddClientAsync(Client client)
         {
             try
             {
                 using (var connection = await _dbConnection.GetConnectionAsync())
                 {
                     var query = @"
-                        INSERT INTO clients (firstname, lastname, phone, email)
+                        INSERT INTO clients (first_name, last_name, phone, email)
                         VALUES (@FirstName, @LastName, @Phone, @Email)
-                        RETURNING clientid";
+                        RETURNING client_id";
 
                     using (var command = new NpgsqlCommand(query, connection))
                     {
@@ -170,43 +92,129 @@ namespace WinFormsDB.Repositories
                         command.Parameters.AddWithValue("@Email", client.Email ?? (object)DBNull.Value);
 
                         var result = await command.ExecuteScalarAsync();
-                        return (int)(long)result;
+                        return (int)result;
                     }
                 }
             }
-            catch
+            catch (System.Exception ex)
             {
-                // Если ошибка БД, генерируем ID в памяти
-                var newId = _clients.Count > 0 ? _clients.Max(c => c.ClientID) + 1 : 1;
-                return newId;
+                throw new System.Exception($"Ошибка добавления клиента в базу данных: {ex.Message}", ex);
             }
         }
 
-        private async Task DeleteClientFromDatabaseAsync(int clientId)
+        public async Task<bool> DeleteClientAsync(int clientId)
         {
             try
             {
                 using (var connection = await _dbConnection.GetConnectionAsync())
                 {
-                    var query = "DELETE FROM clients WHERE clientid = @ClientID";
+                    var query = "DELETE FROM clients WHERE client_id = @ClientID";
                     using (var command = new NpgsqlCommand(query, connection))
                     {
                         command.Parameters.AddWithValue("@ClientID", clientId);
-                        await command.ExecuteNonQueryAsync();
+                        int rowsAffected = await command.ExecuteNonQueryAsync();
+                        return rowsAffected > 0;
                     }
                 }
             }
-            catch
+            catch (System.Exception ex)
             {
-                // Игнорируем ошибки БД
+                throw new System.Exception($"Ошибка удаления клиента из базы данных: {ex.Message}", ex);
             }
         }
 
+        public async Task<bool> UpdateClientAsync(Client client)
+        {
+            try
+            {
+                using (var connection = await _dbConnection.GetConnectionAsync())
+                {
+                    var query = @"
+                        UPDATE clients 
+                        SET first_name = @FirstName, 
+                            last_name = @LastName, 
+                            phone = @Phone, 
+                            email = @Email
+                        WHERE client_id = @ClientID";
+
+                    using (var command = new NpgsqlCommand(query, connection))
+                    {
+                        command.Parameters.AddWithValue("@ClientID", client.ClientID);
+                        command.Parameters.AddWithValue("@FirstName", client.FirstName);
+                        command.Parameters.AddWithValue("@LastName", client.LastName);
+                        command.Parameters.AddWithValue("@Phone", client.Phone ?? (object)DBNull.Value);
+                        command.Parameters.AddWithValue("@Email", client.Email ?? (object)DBNull.Value);
+
+                        int rowsAffected = await command.ExecuteNonQueryAsync();
+                        return rowsAffected > 0;
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                throw new System.Exception($"Ошибка обновления клиента в базе данных: {ex.Message}", ex);
+            }
+        }
+
+        public async Task<Client> GetClientByIdAsync(int clientId)
+        {
+            try
+            {
+                using (var connection = await _dbConnection.GetConnectionAsync())
+                {
+                    var query = @"
+                        SELECT client_id, first_name, last_name, phone, email 
+                        FROM clients 
+                        WHERE client_id = @ClientID";
+
+                    using (var command = new NpgsqlCommand(query, connection))
+                    {
+                        command.Parameters.AddWithValue("@ClientID", clientId);
+
+                        using (var reader = await command.ExecuteReaderAsync())
+                        {
+                            if (await reader.ReadAsync())
+                            {
+                                return new Client
+                                {
+                                    ClientID = reader.GetInt32("client_id"),
+                                    FirstName = reader.GetString("first_name"),
+                                    LastName = reader.GetString("last_name"),
+                                    Phone = reader.IsDBNull("phone") ? null : reader.GetString("phone"),
+                                    Email = reader.IsDBNull("email") ? null : reader.GetString("email")
+                                };
+                            }
+                        }
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                throw new System.Exception($"Ошибка загрузки клиента по ID: {ex.Message}", ex);
+            }
+
+            return null;
+        }
+
         // Синхронные методы для обратной совместимости
-        public List<Client> GetClients() => _clients;
+        public List<Client> GetClients()
+        {
+            return GetClientsAsync().GetAwaiter().GetResult();
+        }
 
-        public void AddClient(Client client) => AddClientAsync(client).GetAwaiter().GetResult();
+        public void AddClient(Client client)
+        {
+            AddClientAsync(client).GetAwaiter().GetResult();
+        }
 
-        public void DeleteClient(int clientId) => DeleteClientAsync(clientId).GetAwaiter().GetResult();
+        public void DeleteClient(int clientId)
+        {
+            DeleteClientAsync(clientId).GetAwaiter().GetResult();
+        }
+
+        public void UpdateClient(Client client)
+        {
+            UpdateClientAsync(client).GetAwaiter().GetResult();
+        }
     }
 }

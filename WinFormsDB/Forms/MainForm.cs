@@ -17,12 +17,12 @@ namespace WinFormsDB.Forms
 {
     public partial class MainForm : Form
     {
-        private readonly DatabaseConnection _dbConnection;
-        private readonly ClientRepository _clientRepository;
-        private readonly ServiceRepository _serviceRepository;
-        private readonly TariffRepository _tariffRepository;
-        private readonly AddressRepository _addressRepository;
-        private readonly BillRepository _billRepository;
+        private DatabaseConnection _dbConnection;
+        private ClientRepository _clientRepository;
+        private ServiceRepository _serviceRepository;
+        private TariffRepository _tariffRepository;
+        private AddressRepository _addressRepository;
+        private BillRepository _billRepository;
 
         private DataGridView? dataGridViewClients;
         private DataGridView? dataGridViewServices;
@@ -34,56 +34,6 @@ namespace WinFormsDB.Forms
         private ToolStripStatusLabel? statusLabel;
 
         private string currentTable = "Clients";
-
-        public MainForm(DatabaseConnection dbConnection)
-        {
-            _dbConnection = dbConnection;
-            _ = InitializeDatabaseAsync();
-            // Сначала создаем ClientRepository
-            _clientRepository = new ClientRepository(_dbConnection);
-
-            // Затем создаем остальные репозитории, передавая ClientRepository в AddressRepository
-            _serviceRepository = new ServiceRepository(_dbConnection);
-            _tariffRepository = new TariffRepository(_dbConnection);
-            _addressRepository = new AddressRepository(_dbConnection, _clientRepository); // Добавлен clientRepository
-            _billRepository = new BillRepository(_dbConnection);
-
-
-            InitializeComponent();
-            InitializeForm();
-
-            // Асинхронная загрузка данных после показа формы
-            this.Shown += async (s, e) => await LoadClientsAsync();
-        }
-
-        private async Task InitializeDatabaseAsync()
-        {
-            try
-            {
-                var initializer = new DatabaseInitializer(_dbConnection);
-                await initializer.InitializeDatabaseAsync();
-
-                // Проверяем, что таблица bills существует
-                bool billsTableExists = await initializer.CheckTableExistsAsync("bills");
-                if (!billsTableExists)
-                {
-                    MessageBox.Show("Таблица bills не была создана. Проверьте подключение к БД.", "Ошибка",
-                        MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    return;
-                }
-
-                // После создания таблиц инициализируем тестовые данные в BillRepository
-                // Теперь используем автоматическую инициализацию через конструктор
-                // BillRepository уже автоматически инициализировал данные через InitializeDataAsync()
-                System.Diagnostics.Debug.WriteLine("База данных инициализирована, BillRepository загружен");
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Ошибка инициализации базы данных: {ex.Message}", "Ошибка",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
         private void InitializeForm()
         {
             this.Text = "Управление коммунальными услугами";
@@ -95,7 +45,72 @@ namespace WinFormsDB.Forms
             CreateDataGrids();
             CreateStatusBar();
 
-            ShowTable("Clients");
+            // УБИРАЕМ вызов ShowTable("Clients") здесь
+            // Данные будут загружены позже в InitializeAndLoadDataAsync
+        }
+
+        public MainForm(DatabaseConnection dbConnection)
+        {
+            _dbConnection = dbConnection;
+
+            InitializeComponent();
+            InitializeForm(); // Теперь здесь не загружаются данные
+
+            // Показываем форму сразу, данные загружаем в фоне
+            this.Shown += async (s, e) =>
+            {
+                await InitializeAndLoadDataAsync();
+            };
+        }
+
+        private async Task InitializeAndLoadDataAsync()
+        {
+            try
+            {
+                UpdateStatus("Инициализация...");
+
+                // 1. Инициализируем БД
+                await InitializeDatabaseAsync();
+
+                // 2. Создаем репозитории ПОСЛЕ инициализации БД
+                _clientRepository = new ClientRepository(_dbConnection);
+                _serviceRepository = new ServiceRepository(_dbConnection);
+                _tariffRepository = new TariffRepository(_dbConnection);
+                _addressRepository = new AddressRepository(_dbConnection);
+                _billRepository = new BillRepository(_dbConnection);
+
+                // 3. Теперь показываем таблицу и загружаем данные
+                ShowTable("Clients"); // ← ПЕРЕМЕЩАЕМ СЮДА!
+
+                UpdateStatus("Готово");
+            }
+            catch (Exception ex)
+            {
+                SafeInvoke(() =>
+                {
+                    MessageBox.Show($"Ошибка инициализации: {ex.Message}\n\nПриложение может работать с ограничениями.",
+                        "Предупреждение", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    UpdateStatus("Ошибка инициализации");
+                });
+            }
+        }
+        private async Task InitializeDatabaseAsync()
+        {
+            try
+            {
+                var initializer = new DatabaseInitializer(_dbConnection);
+                await initializer.InitializeDatabaseAsync();
+
+                // Проверяем что таблицы созданы
+                await initializer.ValidateTableStructureAsync();
+
+                Console.WriteLine("База данных инициализирована успешно");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка инициализации БД: {ex.Message}");
+                // Не бросаем исключение дальше - позволяем приложению работать
+            }
         }
 
         // Метод для безопасного обновления UI из любого потока
@@ -161,11 +176,7 @@ namespace WinFormsDB.Forms
             // Меню "Счета"
             var billsMenu = CreateBillsMenu();
 
-            // Меню "Отчеты"
-            var reportsMenu = new ToolStripMenuItem("Отчеты");
-            var unpaidBillsItem = new ToolStripMenuItem("Неоплаченные счета");
-            unpaidBillsItem.Click += async (s, e) => await ShowUnpaidBillsReportAsync();
-            reportsMenu.DropDownItems.Add(unpaidBillsItem);
+            // УБИРАЕМ меню "Отчеты" - оно больше не нужно
 
             mainMenu.Items.Add(fileMenu);
             mainMenu.Items.Add(tablesMenu);
@@ -174,7 +185,7 @@ namespace WinFormsDB.Forms
             mainMenu.Items.Add(tariffsMenu);
             mainMenu.Items.Add(addressesMenu);
             mainMenu.Items.Add(billsMenu);
-            mainMenu.Items.Add(reportsMenu);
+            // УБИРАЕМ reportsMenu из главного меню
 
             this.Controls.Add(mainMenu);
             this.MainMenuStrip = mainMenu;
@@ -246,7 +257,7 @@ namespace WinFormsDB.Forms
             var addressesMenu = new ToolStripMenuItem("Адреса");
 
             var addAddressItem = new ToolStripMenuItem("Добавить адрес");
-            addAddressItem.Click += async (s, e) => await ShowAddAddressFormAsync(); // Эта строка уже есть
+            addAddressItem.Click += async (s, e) => await ShowAddAddressFormAsync();
 
             var deleteAddressItem = new ToolStripMenuItem("Удалить адрес");
             deleteAddressItem.Click += async (s, e) => await DeleteSelectedAddressAsync();
@@ -288,6 +299,9 @@ namespace WinFormsDB.Forms
 
         private void CreateDataGrids()
         {
+            // УВЕЛИЧИВАЕМ отступ сверху чтобы меню не перекрывало заголовки
+            int topMargin = 70; // Было 50, стало 70 - больше отступ от меню
+
             // Таблица клиентов
             dataGridViewClients = new DataGridView
             {
@@ -298,9 +312,18 @@ namespace WinFormsDB.Forms
                 AllowUserToAddRows = false,
                 AllowUserToDeleteRows = false,
                 SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-                Location = new Point(0, 24),
-                Size = new Size(1200, 626),
-                Visible = false
+                Location = new Point(0, topMargin),
+                Size = new Size(1200, 626 - topMargin),
+                Visible = false,
+                ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.EnableResizing,
+                ColumnHeadersHeight = 50, // БЫЛО 40, СТАЛО 50 - увеличиваем высоту заголовков
+                ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle // ДОБАВЛЯЕМ стиль для лучшей видимости
+                {
+                    Font = new Font("Arial", 10, FontStyle.Bold), // Увеличиваем шрифт
+                    BackColor = Color.LightBlue, // Добавляем цвет фона
+                    ForeColor = Color.Black, // Цвет текста
+                    Alignment = DataGridViewContentAlignment.BottomCenter // Выравнивание по центру снизу 
+                }
             };
 
             // Таблица услуг
@@ -313,9 +336,18 @@ namespace WinFormsDB.Forms
                 AllowUserToAddRows = false,
                 AllowUserToDeleteRows = false,
                 SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-                Location = new Point(0, 24),
-                Size = new Size(1200, 626),
-                Visible = false
+                Location = new Point(0, topMargin),
+                Size = new Size(1200, 626 - topMargin),
+                Visible = false,
+                ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.EnableResizing,
+                ColumnHeadersHeight = 50, // БЫЛО 40, СТАЛО 50
+                ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
+                {
+                    Font = new Font("Arial", 10, FontStyle.Bold),
+                    BackColor = Color.LightBlue,
+                    ForeColor = Color.Black,
+                    Alignment = DataGridViewContentAlignment.BottomCenter
+                }
             };
 
             // Таблица тарифов
@@ -328,9 +360,18 @@ namespace WinFormsDB.Forms
                 AllowUserToAddRows = false,
                 AllowUserToDeleteRows = false,
                 SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-                Location = new Point(0, 24),
-                Size = new Size(1200, 626),
-                Visible = false
+                Location = new Point(0, topMargin),
+                Size = new Size(1200, 626 - topMargin),
+                Visible = false,
+                ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.EnableResizing,
+                ColumnHeadersHeight = 50, // БЫЛО 40, СТАЛО 50
+                ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
+                {
+                    Font = new Font("Arial", 10, FontStyle.Bold),
+                    BackColor = Color.LightBlue,
+                    ForeColor = Color.Black,
+                    Alignment = DataGridViewContentAlignment.BottomCenter
+                }
             };
 
             // Таблица адресов
@@ -343,9 +384,18 @@ namespace WinFormsDB.Forms
                 AllowUserToAddRows = false,
                 AllowUserToDeleteRows = false,
                 SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-                Location = new Point(0, 24),
-                Size = new Size(1200, 626),
-                Visible = false
+                Location = new Point(0, topMargin),
+                Size = new Size(1200, 626 - topMargin),
+                Visible = false,
+                ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.EnableResizing,
+                ColumnHeadersHeight = 50, // БЫЛО 40, СТАЛО 50
+                ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
+                {
+                    Font = new Font("Arial", 10, FontStyle.Bold),
+                    BackColor = Color.LightBlue,
+                    ForeColor = Color.Black,
+                    Alignment = DataGridViewContentAlignment.BottomCenter
+                }
             };
 
             // Таблица счетов
@@ -358,9 +408,18 @@ namespace WinFormsDB.Forms
                 AllowUserToAddRows = false,
                 AllowUserToDeleteRows = false,
                 SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-                Location = new Point(0, 24),
-                Size = new Size(1200, 626),
-                Visible = false
+                Location = new Point(0, topMargin),
+                Size = new Size(1200, 626 - topMargin),
+                Visible = false,
+                ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.EnableResizing,
+                ColumnHeadersHeight = 50, // БЫЛО 40, СТАЛО 50
+                ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
+                {
+                    Font = new Font("Arial", 10, FontStyle.Bold),
+                    BackColor = Color.LightBlue,
+                    ForeColor = Color.Black,
+                    Alignment = DataGridViewContentAlignment.BottomCenter
+                }
             };
 
             // Добавляем обработчики двойного клика
@@ -551,11 +610,14 @@ namespace WinFormsDB.Forms
                 UpdateStatus("Загрузка счетов...");
                 var bills = await _billRepository.GetBillsAsync();
 
+                // СОРТИРУЕМ счета по ID в порядке возрастания для отображения
+                var sortedBills = bills.OrderBy(b => b.BillID).ToList();
+
                 SafeInvoke(() =>
                 {
-                    dataGridViewBills.DataSource = bills;
+                    dataGridViewBills.DataSource = sortedBills;
                     ConfigureBillsGridColumns();
-                    UpdateStatus($"Загружено счетов: {bills.Count}");
+                    UpdateStatus($"Загружено счетов: {sortedBills.Count}");
                 });
             }
             catch (Exception ex)
@@ -674,7 +736,7 @@ namespace WinFormsDB.Forms
         {
             try
             {
-                await Task.Run(() => ShowAddBillForm());
+                await ShowAddBillForm();
             }
             catch (Exception ex)
             {
@@ -686,7 +748,7 @@ namespace WinFormsDB.Forms
             }
         }
 
-        private void ShowAddBillForm()
+        private async Task ShowAddBillForm()
         {
             try
             {
@@ -717,10 +779,10 @@ namespace WinFormsDB.Forms
                     DropDownStyle = ComboBoxStyle.DropDownList
                 };
 
-                // Заполняем комбобокс адресами с информацией о клиентах
+                // Заполняем комбобокс адресами с информацией о клиентах АСИНХРОННО
                 try
                 {
-                    var addresses = _addressRepository.GetAddresses();
+                    var addresses = await _addressRepository.GetAddressesAsync();
                     if (addresses.Count == 0)
                     {
                         MessageBox.Show("Нет доступных адресов. Сначала добавьте адрес.", "Внимание",
@@ -765,10 +827,10 @@ namespace WinFormsDB.Forms
                     DropDownStyle = ComboBoxStyle.DropDownList
                 };
 
-                // Заполняем комбобокс тарифами
+                // Заполняем комбобокс тарифами АСИНХРОННО
                 try
                 {
-                    var tariffs = _tariffRepository.GetTariffs();
+                    var tariffs = await _tariffRepository.GetTariffsAsync();
                     if (tariffs.Count == 0)
                     {
                         MessageBox.Show("Нет доступных тарифов. Сначала добавьте тариф.", "Внимание",
@@ -1015,7 +1077,7 @@ namespace WinFormsDB.Forms
                             IsPaid = chkIsPaid.Checked
                         };
 
-                        // ИСПРАВЛЕНИЕ: Используем репозиторий для добавления счета
+                        // Используем репозиторий для добавления счета
                         var newBillId = await _billRepository.AddBillAsync(bill);
 
                         addForm.DialogResult = DialogResult.OK;
@@ -1084,81 +1146,7 @@ namespace WinFormsDB.Forms
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
-        //public async Task<int> AddBillAsync(Bill bill)
-        //{
-        //    try
-        //    {
-        //        // Проверяем существование адреса и тарифа
-        //        var addressExists = await CheckAddressExistsAsync(bill.AddressID);
-        //        var tariffExists = await CheckTariffExistsAsync(bill.TariffID);
 
-        //        if (!addressExists)
-        //            throw new System.Exception($"Адрес с ID {bill.AddressID} не существует");
-
-        //        if (!tariffExists)
-        //            throw new System.Exception($"Тариф с ID {bill.TariffID} не существует");
-
-        //        // Добавляем в память
-        //        var newId = _bills.Count > 0 ? _bills.Max(b => b.BillID) + 1 : 1;
-        //        bill.BillID = newId;
-
-        //        // Загружаем связанные данные для отображения
-        //        await   LoadRelatedDataForDisplayAsync(bill);
-
-        //        _bills.Add(bill);
-
-        //        // Пытаемся сохранить в базу
-        //        _ = SaveBillToDatabaseAsync(bill);
-
-        //        return newId;
-        //    }
-        //    catch (System.Exception ex)
-        //    {
-        //        throw new System.Exception($"Ошибка добавления счета: {ex.Message}", ex);
-        //    }
-        //}
-
-        private async Task<bool> CheckAddressExistsAsync(int addressId)
-        {
-            try
-            {
-                using (var connection = await _dbConnection.GetConnectionAsync())
-                {
-                    var query = "SELECT 1 FROM addresses WHERE address_id = @AddressID";
-                    using (var command = new NpgsqlCommand(query, connection))
-                    {
-                        command.Parameters.AddWithValue("@AddressID", addressId);
-                        var result = await command.ExecuteScalarAsync();
-                        return result != null;
-                    }
-                }
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        private async Task<bool> CheckTariffExistsAsync(int tariffId)
-        {
-            try
-            {
-                using (var connection = await _dbConnection.GetConnectionAsync())
-                {
-                    var query = "SELECT 1 FROM tariffs WHERE tariff_id = @TariffID";
-                    using (var command = new NpgsqlCommand(query, connection))
-                    {
-                        command.Parameters.AddWithValue("@TariffID", tariffId);
-                        var result = await command.ExecuteScalarAsync();
-                        return result != null;
-                    }
-                }
-            }
-            catch
-            {
-                return false;
-            }
-        }
         private async Task DeleteSelectedBillAsync()
         {
             if (dataGridViewBills?.SelectedRows.Count == 0)
@@ -1229,6 +1217,7 @@ namespace WinFormsDB.Forms
                 }
             }
         }
+
         private async Task MarkBillAsPaidAsync()
         {
             if (dataGridViewBills?.SelectedRows.Count == 0)
@@ -1365,25 +1354,155 @@ namespace WinFormsDB.Forms
             try
             {
                 UpdateStatus("Загрузка клиентов...");
+
+                // Проверяем, инициализирован ли репозиторий
+                if (_clientRepository == null)
+                {
+                    throw new InvalidOperationException("Репозиторий клиентов не инициализирован");
+                }
+
                 var clients = await _clientRepository.GetClientsAsync();
+
+                // СОРТИРУЕМ клиентов по ID в порядке возрастания для отображения
+                var sortedClients = clients.OrderBy(c => c.ClientID).ToList();
 
                 SafeInvoke(() =>
                 {
-                    dataGridViewClients.DataSource = clients;
+                    // Проверяем, инициализирован ли DataGridView
+                    if (dataGridViewClients == null)
+                    {
+                        throw new InvalidOperationException("DataGridView для клиентов не инициализирован");
+                    }
+
+                    // Проверяем данные
+                    if (sortedClients == null)
+                    {
+                        throw new InvalidOperationException("Список клиентов равен null");
+                    }
+
+                    dataGridViewClients.DataSource = sortedClients;
                     ConfigureClientGridColumns();
-                    UpdateStatus($"Загружено клиентов: {clients.Count}");
+                    UpdateStatus($"Загружено клиентов: {sortedClients.Count}");
+
+                    Console.WriteLine($"Успешно загружено {sortedClients.Count} клиентов");
                 });
             }
             catch (Exception ex)
             {
+                Console.WriteLine($"Ошибка в LoadClientsAsync: {ex.Message}");
+                Console.WriteLine($"StackTrace: {ex.StackTrace}");
+
                 SafeInvoke(() =>
                 {
-                    MessageBox.Show($"Ошибка загрузки клиентов: {ex.Message}", "Ошибка",
+                    MessageBox.Show($"Ошибка загрузки клиентов: {ex.Message}\n\nДетали: {ex.InnerException?.Message}", "Ошибка",
                         MessageBoxButtons.OK, MessageBoxIcon.Error);
                     UpdateStatus("Ошибка загрузки данных");
                 });
             }
         }
+        //private async Task LoadClientsAsync()
+        //{
+        //    try
+        //    {
+        //        UpdateStatus("Загрузка клиентов...");
+
+        //        // Безопасная проверка инициализации репозитория
+        //        if (_clientRepository == null)
+        //        {
+        //            SafeInvoke(() =>
+        //            {
+        //                MessageBox.Show("Репозиторий клиентов не готов. Попробуйте обновить список позже.", "Информация",
+        //                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+        //                UpdateStatus("Репозиторий не готов");
+        //            });
+        //            return; // Просто выходим, не бросаем исключение
+        //        }
+
+        //        var clients = await _clientRepository.GetClientsAsync();
+
+        //        // Безопасная обработка null-списка
+        //        if (clients == null)
+        //        {
+        //            SafeInvoke(() =>
+        //            {
+        //                MessageBox.Show("Не удалось получить данные клиентов", "Информация",
+        //                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+        //                UpdateStatus("Данные не получены");
+        //            });
+        //            return;
+        //        }
+
+        //        // СОРТИРУЕМ клиентов по ID в порядке возрастания для отображения
+        //        var sortedClients = clients.OrderBy(c => c.ClientID).ToList();
+
+        //        SafeInvoke(() =>
+        //        {
+        //            // Безопасная проверка DataGridView
+        //            if (dataGridViewClients == null || dataGridViewClients.IsDisposed)
+        //            {
+        //                Console.WriteLine("DataGridView для клиентов не доступен");
+        //                UpdateStatus("Таблица не доступна");
+        //                return;
+        //            }
+
+        //            try
+        //            {
+        //                dataGridViewClients.DataSource = sortedClients;
+        //                ConfigureClientGridColumns();
+        //                UpdateStatus($"Загружено клиентов: {sortedClients.Count}");
+        //                Console.WriteLine($"Успешно загружено {sortedClients.Count} клиентов");
+        //            }
+        //            catch (Exception gridEx)
+        //            {
+        //                Console.WriteLine($"Ошибка обновления таблицы: {gridEx.Message}");
+        //                UpdateStatus("Ошибка отображения данных");
+
+        //                // Показываем пользователю упрощенное сообщение
+        //                MessageBox.Show("Ошибка отображения данных в таблице", "Ошибка",
+        //                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+        //            }
+        //        });
+        //    }
+        //    catch (InvalidOperationException ex)
+        //    {
+        //        // Обработка специфических ошибок инициализации
+        //        Console.WriteLine($"Ошибка инициализации в LoadClientsAsync: {ex.Message}");
+
+        //        SafeInvoke(() =>
+        //        {
+        //            MessageBox.Show($"Ошибка доступа к данным: {ex.Message}", "Ошибка инициализации",
+        //                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        //            UpdateStatus("Ошибка инициализации");
+        //        });
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        // Общая обработка всех остальных исключений
+        //        Console.WriteLine($"Общая ошибка в LoadClientsAsync: {ex.Message}");
+        //        Console.WriteLine($"StackTrace: {ex.StackTrace}");
+
+        //        SafeInvoke(() =>
+        //        {
+        //            string errorDetails = ex.InnerException != null ?
+        //                $"\nДетали: {ex.InnerException.Message}" : "";
+
+        //            MessageBox.Show($"Ошибка загрузки клиентов: {ex.Message}{errorDetails}", "Ошибка",
+        //                MessageBoxButtons.OK, MessageBoxIcon.Error);
+        //            UpdateStatus("Ошибка загрузки данных");
+        //        });
+        //    }
+        //    finally
+        //    {
+        //        // Гарантируем, что статус всегда обновится, даже при ошибках
+        //        SafeInvoke(() =>
+        //        {
+        //            if (statusLabel?.Text == "Загрузка клиентов...")
+        //            {
+        //                UpdateStatus("Загрузка завершена");
+        //            }
+        //        });
+        //    }
+        //}
 
         private void ConfigureClientGridColumns()
         {
@@ -1465,7 +1584,7 @@ namespace WinFormsDB.Forms
                 // Поле для имени
                 var lblFirstName = new Label
                 {
-                    Text = "Имя:",
+                    Text = "Имя:*",
                     Location = new Point(20, 20),
                     Width = 80,
                     Font = new Font("Arial", 9, FontStyle.Bold)
@@ -1481,7 +1600,7 @@ namespace WinFormsDB.Forms
                 // Поле для фамилии
                 var lblLastName = new Label
                 {
-                    Text = "Фамилия:",
+                    Text = "Фамилия:*",
                     Location = new Point(20, 60),
                     Width = 80,
                     Font = new Font("Arial", 9, FontStyle.Bold)
@@ -1628,16 +1747,18 @@ namespace WinFormsDB.Forms
                             Email = string.IsNullOrWhiteSpace(txtEmail.Text) ? null : txtEmail.Text.Trim()
                         };
 
-                        await _clientRepository.AddClientAsync(client);
+                        // Сохраняем клиента в базу данных через SQL запрос
+                        var newClientId = await _clientRepository.AddClientAsync(client);
 
                         addForm.DialogResult = DialogResult.OK;
                         addForm.Close();
 
+                        // Обновляем список клиентов
                         await LoadClientsAsync();
 
                         SafeInvoke(() =>
                         {
-                            MessageBox.Show("Клиент успешно добавлен!", "Успех",
+                            MessageBox.Show($"Клиент успешно добавлен! ID: {newClientId}", "Успех",
                                 MessageBoxButtons.OK, MessageBoxIcon.Information);
                         });
                     }
@@ -1671,13 +1792,16 @@ namespace WinFormsDB.Forms
 
                 addForm.Controls.AddRange(new Control[]
                 {
-                    lblFirstName, txtFirstName,
-                    lblLastName, txtLastName,
-                    lblPhone, txtPhone,
-                    lblEmail, txtEmail,
-                    lblError,
-                    btnSave, btnCancel
+            lblFirstName, txtFirstName,
+            lblLastName, txtLastName,
+            lblPhone, txtPhone,
+            lblEmail, txtEmail,
+            lblError,
+            btnSave, btnCancel
                 });
+
+                // Устанавливаем фокус на поле имени при открытии формы
+                addForm.Shown += (s, e) => txtFirstName.Focus();
 
                 txtFirstName.Focus();
                 addForm.ShowDialog();
@@ -1755,11 +1879,14 @@ namespace WinFormsDB.Forms
                 UpdateStatus("Загрузка услуг...");
                 var services = await _serviceRepository.GetServicesAsync();
 
+                // СОРТИРУЕМ услуги по ID в порядке возрастания для отображения
+                var sortedServices = services.OrderBy(s => s.ServiceID).ToList();
+
                 SafeInvoke(() =>
                 {
-                    dataGridViewServices.DataSource = services;
+                    dataGridViewServices.DataSource = sortedServices;
                     ConfigureServicesGridColumns();
-                    UpdateStatus($"Загружено услуг: {services.Count}");
+                    UpdateStatus($"Загружено услуг: {sortedServices.Count}");
                 });
             }
             catch (Exception ex)
@@ -1819,7 +1946,7 @@ namespace WinFormsDB.Forms
             }
         }
 
-        private void ShowAddServiceForm()
+        private async Task ShowAddServiceForm()
         {
             try
             {
@@ -1837,7 +1964,7 @@ namespace WinFormsDB.Forms
                 // Поле для названия услуги
                 var lblServiceName = new Label
                 {
-                    Text = "Название услуги:",
+                    Text = "Название услуги:*",
                     Location = new Point(20, 20),
                     Width = 150,
                     Font = new Font("Arial", 9, FontStyle.Bold)
@@ -1852,7 +1979,7 @@ namespace WinFormsDB.Forms
                 // Поле для типа услуги
                 var lblServiceType = new Label
                 {
-                    Text = "Тип услуги:",
+                    Text = "Тип услуги:*",
                     Location = new Point(20, 60),
                     Width = 150,
                     Font = new Font("Arial", 9, FontStyle.Bold)
@@ -1950,7 +2077,8 @@ namespace WinFormsDB.Forms
                             ServiceType = txtServiceType.Text.Trim()
                         };
 
-                        await _serviceRepository.AddServiceAsync(service);
+                        // Сохраняем услугу в базу данных и получаем реальный ID
+                        var newServiceId = await _serviceRepository.AddServiceAsync(service);
 
                         addForm.DialogResult = DialogResult.OK;
                         addForm.Close();
@@ -1964,8 +2092,11 @@ namespace WinFormsDB.Forms
                             ShowTable("Services");
                         }
 
-                        MessageBox.Show("Услуга успешно добавлена!", "Успех",
-                            MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        SafeInvoke(() =>
+                        {
+                            MessageBox.Show($"Услуга успешно добавлена! ID: {newServiceId}", "Успех",
+                                MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        });
                     }
                     catch (Exception ex)
                     {
@@ -1995,12 +2126,14 @@ namespace WinFormsDB.Forms
 
                 addForm.Controls.AddRange(new Control[]
                 {
-                    lblServiceName, txtServiceName,
-                    lblServiceType, txtServiceType,
-                    lblError,
-                    btnSave, btnCancel
+            lblServiceName, txtServiceName,
+            lblServiceType, txtServiceType,
+            lblError,
+            btnSave, btnCancel
                 });
 
+                // Устанавливаем фокус на поле названия услуги
+                addForm.Shown += (s, e) => txtServiceName.Focus();
                 txtServiceName.Focus();
                 addForm.ShowDialog();
             }
@@ -2074,11 +2207,14 @@ namespace WinFormsDB.Forms
                 UpdateStatus("Загрузка тарифов...");
                 var tariffs = await _tariffRepository.GetTariffsAsync();
 
+                // СОРТИРУЕМ тарифы по ID в порядке возрастания для отображения
+                var sortedTariffs = tariffs.OrderBy(t => t.TariffID).ToList();
+
                 SafeInvoke(() =>
                 {
-                    dataGridViewTariffs.DataSource = tariffs;
+                    dataGridViewTariffs.DataSource = sortedTariffs;
                     ConfigureTariffsGridColumns();
-                    UpdateStatus($"Загружено тарифов: {tariffs.Count}");
+                    UpdateStatus($"Загружено тарифов: {sortedTariffs.Count}");
                 });
             }
             catch (Exception ex)
@@ -2177,7 +2313,7 @@ namespace WinFormsDB.Forms
                 // Выпадающий список для выбора услуги
                 var lblService = new Label
                 {
-                    Text = "Услуга:",
+                    Text = "Услуга:*",
                     Location = new Point(20, 20),
                     Width = 120,
                     Font = new Font("Arial", 9, FontStyle.Bold)
@@ -2197,7 +2333,7 @@ namespace WinFormsDB.Forms
                 // Выпадающий список для выбора типа цены
                 var lblPriceType = new Label
                 {
-                    Text = "Тип цены:",
+                    Text = "Тип цены:*",
                     Location = new Point(20, 60),
                     Width = 120,
                     Font = new Font("Arial", 9, FontStyle.Bold)
@@ -2211,15 +2347,15 @@ namespace WinFormsDB.Forms
                 };
 
                 cmbPriceType.Items.AddRange(new string[] {
-                    "Цена за квадратный метр",
-                    "Цена за человека",
-                    "Цена за потребляемый объем"
-                });
+            "Цена за квадратный метр",
+            "Цена за человека",
+            "Цена за потребляемый объем"
+        });
 
                 // Поле для ввода цены
                 var lblPrice = new Label
                 {
-                    Text = "Цена:",
+                    Text = "Цена:*",
                     Location = new Point(20, 100),
                     Width = 120,
                     Font = new Font("Arial", 9, FontStyle.Bold)
@@ -2332,7 +2468,8 @@ namespace WinFormsDB.Forms
                             PricePerUnit = priceType == "Цена за потребляемый объем" ? price : 0m
                         };
 
-                        await _tariffRepository.AddTariffAsync(tariff);
+                        // Сохраняем тариф в базу данных и получаем реальный ID
+                        var newTariffId = await _tariffRepository.AddTariffAsync(tariff);
 
                         addForm.DialogResult = DialogResult.OK;
                         addForm.Close();
@@ -2346,8 +2483,11 @@ namespace WinFormsDB.Forms
                             ShowTable("Tariffs");
                         }
 
-                        MessageBox.Show("Тариф успешно добавлен!", "Успех",
-                            MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        SafeInvoke(() =>
+                        {
+                            MessageBox.Show($"Тариф успешно добавлен! ID: {newTariffId}", "Успех",
+                                MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        });
                     }
                     catch (Exception ex)
                     {
@@ -2384,13 +2524,15 @@ namespace WinFormsDB.Forms
 
                 addForm.Controls.AddRange(new Control[]
                 {
-                    lblService, cmbService,
-                    lblPriceType, cmbPriceType,
-                    lblPrice, txtPrice,
-                    lblError,
-                    btnSave, btnCancel
+            lblService, cmbService,
+            lblPriceType, cmbPriceType,
+            lblPrice, txtPrice,
+            lblError,
+            btnSave, btnCancel
                 });
 
+                // Устанавливаем фокус на выпадающий список услуг
+                addForm.Shown += (s, e) => cmbService.Focus();
                 cmbService.Focus();
 
                 if (cmbService.Items.Count > 0)
@@ -2471,11 +2613,14 @@ namespace WinFormsDB.Forms
                 UpdateStatus("Загрузка адресов...");
                 var addresses = await _addressRepository.GetAddressesAsync();
 
+                // СОРТИРУЕМ адреса по ID в порядке возрастания для отображения
+                var sortedAddresses = addresses.OrderBy(a => a.AddressID).ToList();
+
                 SafeInvoke(() =>
                 {
-                    dataGridViewAddresses.DataSource = addresses;
+                    dataGridViewAddresses.DataSource = sortedAddresses;
                     ConfigureAddressGridColumns();
-                    UpdateStatus($"Загружено адресов: {addresses.Count}");
+                    UpdateStatus($"Загружено адресов: {sortedAddresses.Count}");
                 });
             }
             catch (Exception ex)
@@ -2583,15 +2728,19 @@ namespace WinFormsDB.Forms
         {
             try
             {
-                await Task.Run(() => ShowAddAddressForm());
+                await ShowAddAddressForm();
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Ошибка открытия формы: {ex.Message}", "Ошибка",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                SafeInvoke(() =>
+                {
+                    MessageBox.Show($"Ошибка открытия формы: {ex.Message}", "Ошибка",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                });
             }
         }
-        private void ShowAddAddressForm()
+
+        private async Task ShowAddAddressForm()
         {
             try
             {
@@ -2623,10 +2772,10 @@ namespace WinFormsDB.Forms
                     DropDownStyle = ComboBoxStyle.DropDownList
                 };
 
-                // Заполняем комбобокс клиентами
+                // Заполняем комбобокс клиентами АСИНХРОННО
                 try
                 {
-                    var clients = _clientRepository.GetClients();
+                    var clients = await _clientRepository.GetClientsAsync();
                     if (clients.Count == 0)
                     {
                         MessageBox.Show("Нет доступных клиентов. Сначала добавьте клиента.", "Внимание",
@@ -2640,7 +2789,7 @@ namespace WinFormsDB.Forms
                     {
                         c.ClientID,
                         DisplayName = $"{c.LastName} {c.FirstName}",
-                        ClientObject = c // Сохраняем объект клиента
+                        ClientObject = c
                     }).ToList();
                 }
                 catch (Exception ex)
@@ -2831,7 +2980,7 @@ namespace WinFormsDB.Forms
                         var address = new Address
                         {
                             ClientID = selectedClient.ClientID,
-                            Client = selectedClient.ClientObject, // Сохраняем объект клиента
+                            Client = selectedClient.ClientObject,
                             Street = txtStreet.Text.Trim(),
                             House = txtHouse.Text.Trim(),
                             Apartment = string.IsNullOrWhiteSpace(txtApartment.Text) ? null : txtApartment.Text.Trim(),
@@ -2839,7 +2988,7 @@ namespace WinFormsDB.Forms
                             ResidentsCount = (int)txtResidentsCount.Value
                         };
 
-                        // Сохраняем адрес в базу данных
+                        // Сохраняем адрес в базу данных и получаем реальный ID
                         var newAddressId = await _addressRepository.AddAddressAsync(address);
 
                         // Закрываем форму и обновляем таблицу
@@ -2849,8 +2998,11 @@ namespace WinFormsDB.Forms
                         // Обновляем таблицу адресов
                         await LoadAddressesAsync();
 
-                        MessageBox.Show($"Адрес успешно добавлен! ID: {newAddressId}", "Успех",
-                            MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        SafeInvoke(() =>
+                        {
+                            MessageBox.Show($"Адрес успешно добавлен! ID: {newAddressId}", "Успех",
+                                MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        });
                     }
                     catch (Exception ex)
                     {
@@ -2892,6 +3044,8 @@ namespace WinFormsDB.Forms
             btnSave, btnCancel
                 });
 
+                // Устанавливаем фокус на поле улицы
+                addForm.Shown += (s, e) => txtStreet.Focus();
                 txtStreet.Focus();
                 addForm.ShowDialog();
             }
@@ -2975,53 +3129,6 @@ namespace WinFormsDB.Forms
         #endregion
 
         #region Вспомогательные методы
-
-        private async Task ShowUnpaidBillsReportAsync()
-        {
-            try
-            {
-                UpdateStatus("Формирование отчета...");
-                var reportService = new ReportService(_dbConnection);
-
-                var clients = await _clientRepository.GetClientsAsync();
-                if (clients.Count == 0)
-                {
-                    SafeInvoke(() =>
-                    {
-                        MessageBox.Show("Нет клиентов для отчета", "Информация");
-                    });
-                    return;
-                }
-
-                var unpaidBills = await reportService.GetUnpaidBillsByClientAsync(clients[0].ClientID);
-                var reportText = $"Неоплаченные счета для {clients[0].LastName} {clients[0].FirstName}:\n\n";
-
-                foreach (var bill in unpaidBills)
-                {
-                    reportText += $"{bill.ServiceName}: {bill.Amount:C2} (до {bill.PaymentDate:dd.MM.yyyy})\n";
-                }
-
-                if (unpaidBills.Count == 0)
-                {
-                    reportText += "Неоплаченных счетов нет";
-                }
-
-                SafeInvoke(() =>
-                {
-                    MessageBox.Show(reportText, "Отчет по неоплаченным счетам",
-                        MessageBoxButtons.OK, MessageBoxIcon.Information);
-                });
-                UpdateStatus("Отчет сформирован");
-            }
-            catch (Exception ex)
-            {
-                SafeInvoke(() =>
-                {
-                    MessageBox.Show($"Ошибка формирования отчета: {ex.Message}", "Ошибка");
-                });
-                UpdateStatus("Ошибка формирования отчета");
-            }
-        }
 
         private void ShowClientDetails(Client client)
         {
@@ -3153,6 +3260,7 @@ namespace WinFormsDB.Forms
         }
         #endregion
     }
+
     public class ComboBoxItem
     {
         public string Text { get; set; }
@@ -3164,5 +3272,4 @@ namespace WinFormsDB.Forms
             return Text;
         }
     }
-
 }

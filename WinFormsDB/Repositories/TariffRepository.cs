@@ -11,56 +11,14 @@ namespace WinFormsDB.Repositories
     public class TariffRepository
     {
         private readonly DatabaseConnection _dbConnection;
-        private List<Tariff> _tariffs;
 
         public TariffRepository(DatabaseConnection dbConnection)
         {
             _dbConnection = dbConnection;
-            _tariffs = new List<Tariff>();
-
-            // Загружаем данные из базы при создании репозитория
-            _ = InitializeDataAsync();
         }
 
-        private async Task InitializeDataAsync()
-        {
-            try
-            {
-                var tariffsFromDb = await LoadTariffsFromDatabaseAsync();
-                if (tariffsFromDb.Any())
-                {
-                    _tariffs = tariffsFromDb;
-                }
-                else
-                {
-                    // Если в базе нет данных, используем демо-данные
-                    _tariffs = GetDefaultTariffs();
-                    await SaveDefaultTariffsToDatabaseAsync();
-                }
-            }
-            catch
-            {
-                // Если ошибка базы, используем только in-memory
-                _tariffs = GetDefaultTariffs();
-            }
-        }
-
-        private List<Tariff> GetDefaultTariffs()
-        {
-            return new List<Tariff>
-            {
-                new Tariff { TariffID = 1, ServiceName = "Подача холодной воды", PricePerSquareMeter = 0m, PricePerPerson = 0m, PricePerUnit = 67.15m },
-                new Tariff { TariffID = 2, ServiceName = "Подача горячей воды", PricePerSquareMeter = 0m, PricePerPerson = 0m, PricePerUnit = 73.62m },
-                new Tariff { TariffID = 3, ServiceName = "Подача газа в квартиру", PricePerSquareMeter = 0m, PricePerPerson = 0m, PricePerUnit = 8.19m },
-                new Tariff { TariffID = 4, ServiceName = "Взнос в капитальный ремонт дома", PricePerSquareMeter = 0m, PricePerPerson = 0m, PricePerUnit = 5.24m },
-                new Tariff { TariffID = 5, ServiceName = "Отопление", PricePerSquareMeter = 3785.86m, PricePerPerson = 0m, PricePerUnit = 0m },
-                new Tariff { TariffID = 6, ServiceName = "Взнос в капитальный ремонт дома", PricePerSquareMeter = 14.08m, PricePerPerson = 0m, PricePerUnit = 0m },
-                new Tariff { TariffID = 7, ServiceName = "Обращение с ТКО", PricePerSquareMeter = 0m, PricePerPerson = 122.13m, PricePerUnit = 0m },
-                new Tariff { TariffID = 8, ServiceName = "Электронное запирающее устройство", PricePerSquareMeter = 0m, PricePerPerson = 0m, PricePerUnit = 60.00m }
-            };
-        }
-
-        private async Task<List<Tariff>> LoadTariffsFromDatabaseAsync()
+        // Основные методы работы с БД
+        public async Task<List<Tariff>> GetTariffsAsync()
         {
             var tariffs = new List<Tariff>();
 
@@ -68,14 +26,14 @@ namespace WinFormsDB.Repositories
             {
                 using (var connection = await _dbConnection.GetConnectionAsync())
                 {
-                    // Предполагаем, что таблица tariffs уже создана
                     var query = @"
                         SELECT 
-                            tariff_id as TariffID,
-                            service_name as ServiceName,
-                            price_per_square_meter as PricePerSquareMeter,
-                            price_per_person as PricePerPerson,
-                            price_per_unit as PricePerUnit
+                            tariff_id, 
+                            service_id,
+                            service_name, 
+                            price_per_square_meter, 
+                            price_per_person, 
+                            price_per_unit
                         FROM tariffs 
                         ORDER BY tariff_id";
 
@@ -86,181 +44,125 @@ namespace WinFormsDB.Repositories
                         {
                             tariffs.Add(new Tariff
                             {
-                                TariffID = reader.GetInt32("TariffID"),
-                                ServiceName = reader.GetString("ServiceName"),
-                                PricePerSquareMeter = reader.GetDecimal("PricePerSquareMeter"),
-                                PricePerPerson = reader.GetDecimal("PricePerPerson"),
-                                PricePerUnit = reader.GetDecimal("PricePerUnit")
+                                TariffID = reader.GetInt32("tariff_id"),
+                                ServiceID = reader.GetInt32("service_id"),
+                                ServiceName = reader.GetString("service_name"),
+                                PricePerSquareMeter = reader.GetDecimal("price_per_square_meter"),
+                                PricePerPerson = reader.GetDecimal("price_per_person"),
+                                PricePerUnit = reader.GetDecimal("price_per_unit")
                             });
                         }
                     }
                 }
             }
-            catch
+            catch (System.Exception ex)
             {
-                // Если ошибка - возвращаем пустой список
+                throw new System.Exception($"Ошибка загрузки тарифов из базы данных: {ex.Message}", ex);
             }
 
             return tariffs;
         }
 
-        private async Task SaveDefaultTariffsToDatabaseAsync()
+        public async Task<int> AddTariffAsync(Tariff tariff)
         {
             try
             {
-                // Предполагаем, что таблица tariffs уже создана в MainForm
                 using (var connection = await _dbConnection.GetConnectionAsync())
                 {
-                    foreach (var tariff in _tariffs)
+                    // Сначала проверяем, существует ли услуга
+                    var checkServiceQuery = "SELECT 1 FROM services WHERE service_id = @ServiceID";
+                    using (var checkCommand = new NpgsqlCommand(checkServiceQuery, connection))
                     {
-                        // Используем INSERT с обработкой конфликтов
-                        var query = @"
-                            INSERT INTO tariffs (service_name, price_per_square_meter, price_per_person, price_per_unit)
-                            VALUES (@ServiceName, @PricePerSquareMeter, @PricePerPerson, @PricePerUnit)
-                            ON CONFLICT (service_name) DO NOTHING";
+                        checkCommand.Parameters.AddWithValue("@ServiceID", tariff.ServiceID);
+                        var serviceExists = await checkCommand.ExecuteScalarAsync();
 
-                        using (var command = new NpgsqlCommand(query, connection))
+                        if (serviceExists == null)
                         {
-                            command.Parameters.AddWithValue("@ServiceName", tariff.ServiceName);
-                            command.Parameters.AddWithValue("@PricePerSquareMeter", tariff.PricePerSquareMeter);
-                            command.Parameters.AddWithValue("@PricePerPerson", tariff.PricePerPerson);
-                            command.Parameters.AddWithValue("@PricePerUnit", tariff.PricePerUnit);
-
-                            await command.ExecuteNonQueryAsync();
+                            throw new System.Exception($"Услуга с ID {tariff.ServiceID} не существует");
                         }
                     }
-                }
-            }
-            catch
-            {
-                // Игнорируем ошибки записи в базу
-            }
-        }
 
-        public async Task<List<Tariff>> GetTariffsAsync()
-        {
-            // Всегда возвращаем актуальные данные из памяти
-            return await Task.FromResult(_tariffs);
-        }
-
-        public async Task AddTariffAsync(Tariff tariff)
-        {
-            // Добавляем в память
-            var newId = _tariffs.Count > 0 ? _tariffs.Max(t => t.TariffID) + 1 : 1;
-            tariff.TariffID = newId;
-            _tariffs.Add(tariff);
-
-            // Пытаемся сохранить в базу (не блокируем UI при ошибках)
-            _ = SaveTariffToDatabaseAsync(tariff);
-
-            await Task.CompletedTask;
-        }
-
-        private async Task SaveTariffToDatabaseAsync(Tariff tariff)
-        {
-            try
-            {
-                using (var connection = await _dbConnection.GetConnectionAsync())
-                {
                     var query = @"
-                        INSERT INTO tariffs (service_name, price_per_square_meter, price_per_person, price_per_unit)
-                        VALUES (@ServiceName, @PricePerSquareMeter, @PricePerPerson, @PricePerUnit)";
+                        INSERT INTO tariffs (service_id, service_name, price_per_square_meter, price_per_person, price_per_unit)
+                        VALUES (@ServiceID, @ServiceName, @PricePerSquareMeter, @PricePerPerson, @PricePerUnit)
+                        RETURNING tariff_id";
 
                     using (var command = new NpgsqlCommand(query, connection))
                     {
+                        command.Parameters.AddWithValue("@ServiceID", tariff.ServiceID);
                         command.Parameters.AddWithValue("@ServiceName", tariff.ServiceName);
                         command.Parameters.AddWithValue("@PricePerSquareMeter", tariff.PricePerSquareMeter);
                         command.Parameters.AddWithValue("@PricePerPerson", tariff.PricePerPerson);
                         command.Parameters.AddWithValue("@PricePerUnit", tariff.PricePerUnit);
 
-                        await command.ExecuteNonQueryAsync();
+                        var result = await command.ExecuteScalarAsync();
+                        return (int)result;
                     }
                 }
             }
-            catch
+            catch (System.Exception ex)
             {
-                // Игнорируем ошибки базы данных
+                throw new System.Exception($"Ошибка добавления тарифа в базу данных: {ex.Message}", ex);
             }
         }
 
-        public async Task DeleteTariffAsync(int tariffId)
-        {
-            // Удаляем из памяти
-            var tariff = _tariffs.FirstOrDefault(t => t.TariffID == tariffId);
-            if (tariff != null)
-            {
-                _tariffs.Remove(tariff);
-
-                // Пытаемся удалить из базы
-                _ = DeleteTariffFromDatabaseAsync(tariffId);
-            }
-
-            await Task.CompletedTask;
-        }
-
-        private async Task DeleteTariffFromDatabaseAsync(int tariffId)
+        public async Task<bool> DeleteTariffAsync(int tariffId)
         {
             try
             {
                 using (var connection = await _dbConnection.GetConnectionAsync())
                 {
+                    // Сначала проверяем, есть ли связанные счета
+                    var checkQuery = "SELECT COUNT(*) FROM bills WHERE tariff_id = @TariffID";
+                    using (var checkCommand = new NpgsqlCommand(checkQuery, connection))
+                    {
+                        checkCommand.Parameters.AddWithValue("@TariffID", tariffId);
+                        var billCount = (long)await checkCommand.ExecuteScalarAsync();
+
+                        if (billCount > 0)
+                        {
+                            throw new System.Exception("Невозможно удалить тариф, так как с ним связаны счета. Сначала удалите связанные счета.");
+                        }
+                    }
+
                     var query = "DELETE FROM tariffs WHERE tariff_id = @TariffID";
                     using (var command = new NpgsqlCommand(query, connection))
                     {
                         command.Parameters.AddWithValue("@TariffID", tariffId);
-                        await command.ExecuteNonQueryAsync();
+                        int rowsAffected = await command.ExecuteNonQueryAsync();
+                        return rowsAffected > 0;
                     }
                 }
             }
-            catch
+            catch (System.Exception ex)
             {
-                // Игнорируем ошибки базы данных
+                throw new System.Exception($"Ошибка удаления тарифа из базы данных: {ex.Message}", ex);
             }
         }
 
-        // Синхронные методы для форм
-        public List<Tariff> GetTariffs()
+        public async Task<bool> UpdateTariffAsync(Tariff tariff)
         {
-            return _tariffs;
-        }
-
-        public void AddTariff(Tariff tariff)
-        {
-            var newId = _tariffs.Count > 0 ? _tariffs.Max(t => t.TariffID) + 1 : 1;
-            tariff.TariffID = newId;
-            _tariffs.Add(tariff);
-        }
-
-        public void DeleteTariff(int tariffId)
-        {
-            var tariff = _tariffs.FirstOrDefault(t => t.TariffID == tariffId);
-            if (tariff != null)
-            {
-                _tariffs.Remove(tariff);
-            }
-        }
-
-        // Дополнительные методы для работы с тарифами
-        public async Task UpdateTariffAsync(Tariff tariff)
-        {
-            // Обновляем в памяти
-            var existingTariff = _tariffs.FirstOrDefault(t => t.TariffID == tariff.TariffID);
-            if (existingTariff != null)
-            {
-                existingTariff.ServiceName = tariff.ServiceName;
-                existingTariff.PricePerSquareMeter = tariff.PricePerSquareMeter;
-                existingTariff.PricePerPerson = tariff.PricePerPerson;
-                existingTariff.PricePerUnit = tariff.PricePerUnit;
-            }
-
-            // Обновляем в базе данных
             try
             {
                 using (var connection = await _dbConnection.GetConnectionAsync())
                 {
+                    // Сначала проверяем, существует ли услуга
+                    var checkServiceQuery = "SELECT 1 FROM services WHERE service_id = @ServiceID";
+                    using (var checkCommand = new NpgsqlCommand(checkServiceQuery, connection))
+                    {
+                        checkCommand.Parameters.AddWithValue("@ServiceID", tariff.ServiceID);
+                        var serviceExists = await checkCommand.ExecuteScalarAsync();
+
+                        if (serviceExists == null)
+                        {
+                            throw new System.Exception($"Услуга с ID {tariff.ServiceID} не существует");
+                        }
+                    }
+
                     var query = @"
                         UPDATE tariffs 
-                        SET service_name = @ServiceName,
+                        SET service_id = @ServiceID,
+                            service_name = @ServiceName,
                             price_per_square_meter = @PricePerSquareMeter,
                             price_per_person = @PricePerPerson,
                             price_per_unit = @PricePerUnit
@@ -269,38 +171,44 @@ namespace WinFormsDB.Repositories
                     using (var command = new NpgsqlCommand(query, connection))
                     {
                         command.Parameters.AddWithValue("@TariffID", tariff.TariffID);
+                        command.Parameters.AddWithValue("@ServiceID", tariff.ServiceID);
                         command.Parameters.AddWithValue("@ServiceName", tariff.ServiceName);
                         command.Parameters.AddWithValue("@PricePerSquareMeter", tariff.PricePerSquareMeter);
                         command.Parameters.AddWithValue("@PricePerPerson", tariff.PricePerPerson);
                         command.Parameters.AddWithValue("@PricePerUnit", tariff.PricePerUnit);
-                        await command.ExecuteNonQueryAsync();
+
+                        int rowsAffected = await command.ExecuteNonQueryAsync();
+                        return rowsAffected > 0;
                     }
                 }
             }
-            catch
+            catch (System.Exception ex)
             {
-                // Игнорируем ошибки базы данных
+                throw new System.Exception($"Ошибка обновления тарифа в базе данных: {ex.Message}", ex);
             }
         }
 
         public async Task<Tariff> GetTariffByIdAsync(int tariffId)
         {
-            // Ищем в памяти
-            var tariff = _tariffs.FirstOrDefault(t => t.TariffID == tariffId);
-            if (tariff != null)
-            {
-                return tariff;
-            }
-
-            // Если не нашли в памяти, ищем в базе
             try
             {
                 using (var connection = await _dbConnection.GetConnectionAsync())
                 {
-                    var query = "SELECT * FROM tariffs WHERE tariff_id = @TariffID";
+                    var query = @"
+                        SELECT 
+                            tariff_id, 
+                            service_id,
+                            service_name, 
+                            price_per_square_meter, 
+                            price_per_person, 
+                            price_per_unit
+                        FROM tariffs 
+                        WHERE tariff_id = @TariffID";
+
                     using (var command = new NpgsqlCommand(query, connection))
                     {
                         command.Parameters.AddWithValue("@TariffID", tariffId);
+
                         using (var reader = await command.ExecuteReaderAsync())
                         {
                             if (await reader.ReadAsync())
@@ -308,6 +216,7 @@ namespace WinFormsDB.Repositories
                                 return new Tariff
                                 {
                                     TariffID = reader.GetInt32("tariff_id"),
+                                    ServiceID = reader.GetInt32("service_id"),
                                     ServiceName = reader.GetString("service_name"),
                                     PricePerSquareMeter = reader.GetDecimal("price_per_square_meter"),
                                     PricePerPerson = reader.GetDecimal("price_per_person"),
@@ -318,12 +227,197 @@ namespace WinFormsDB.Repositories
                     }
                 }
             }
-            catch
+            catch (System.Exception ex)
             {
-                // Игнорируем ошибки
+                throw new System.Exception($"Ошибка загрузки тарифа по ID: {ex.Message}", ex);
             }
 
             return null;
+        }
+
+        public async Task<List<Tariff>> GetTariffsByServiceIdAsync(int serviceId)
+        {
+            var tariffs = new List<Tariff>();
+
+            try
+            {
+                using (var connection = await _dbConnection.GetConnectionAsync())
+                {
+                    var query = @"
+                        SELECT 
+                            tariff_id, 
+                            service_id,
+                            service_name, 
+                            price_per_square_meter, 
+                            price_per_person, 
+                            price_per_unit
+                        FROM tariffs 
+                        WHERE service_id = @ServiceID
+                        ORDER BY tariff_id";
+
+                    using (var command = new NpgsqlCommand(query, connection))
+                    {
+                        command.Parameters.AddWithValue("@ServiceID", serviceId);
+
+                        using (var reader = await command.ExecuteReaderAsync())
+                        {
+                            while (await reader.ReadAsync())
+                            {
+                                tariffs.Add(new Tariff
+                                {
+                                    TariffID = reader.GetInt32("tariff_id"),
+                                    ServiceID = reader.GetInt32("service_id"),
+                                    ServiceName = reader.GetString("service_name"),
+                                    PricePerSquareMeter = reader.GetDecimal("price_per_square_meter"),
+                                    PricePerPerson = reader.GetDecimal("price_per_person"),
+                                    PricePerUnit = reader.GetDecimal("price_per_unit")
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                throw new System.Exception($"Ошибка загрузки тарифов по ID услуги: {ex.Message}", ex);
+            }
+
+            return tariffs;
+        }
+
+        public async Task<Tariff> GetTariffByServiceIdAsync(int serviceId)
+        {
+            try
+            {
+                using (var connection = await _dbConnection.GetConnectionAsync())
+                {
+                    var query = @"
+                        SELECT 
+                            tariff_id, 
+                            service_id,
+                            service_name, 
+                            price_per_square_meter, 
+                            price_per_person, 
+                            price_per_unit
+                        FROM tariffs 
+                        WHERE service_id = @ServiceID
+                        LIMIT 1";
+
+                    using (var command = new NpgsqlCommand(query, connection))
+                    {
+                        command.Parameters.AddWithValue("@ServiceID", serviceId);
+
+                        using (var reader = await command.ExecuteReaderAsync())
+                        {
+                            if (await reader.ReadAsync())
+                            {
+                                return new Tariff
+                                {
+                                    TariffID = reader.GetInt32("tariff_id"),
+                                    ServiceID = reader.GetInt32("service_id"),
+                                    ServiceName = reader.GetString("service_name"),
+                                    PricePerSquareMeter = reader.GetDecimal("price_per_square_meter"),
+                                    PricePerPerson = reader.GetDecimal("price_per_person"),
+                                    PricePerUnit = reader.GetDecimal("price_per_unit")
+                                };
+                            }
+                        }
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                throw new System.Exception($"Ошибка загрузки тарифа по ID услуги: {ex.Message}", ex);
+            }
+
+            return null;
+        }
+
+        public async Task<bool> TariffExistsAsync(int tariffId)
+        {
+            try
+            {
+                using (var connection = await _dbConnection.GetConnectionAsync())
+                {
+                    var query = "SELECT 1 FROM tariffs WHERE tariff_id = @TariffID";
+                    using (var command = new NpgsqlCommand(query, connection))
+                    {
+                        command.Parameters.AddWithValue("@TariffID", tariffId);
+                        var result = await command.ExecuteScalarAsync();
+                        return result != null;
+                    }
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public async Task<int> GetTariffsCountAsync()
+        {
+            try
+            {
+                using (var connection = await _dbConnection.GetConnectionAsync())
+                {
+                    var query = "SELECT COUNT(*) FROM tariffs";
+                    using (var command = new NpgsqlCommand(query, connection))
+                    {
+                        var result = await command.ExecuteScalarAsync();
+                        return Convert.ToInt32(result);
+                    }
+                }
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        // Синхронные методы для обратной совместимости
+        public List<Tariff> GetTariffs()
+        {
+            return GetTariffsAsync().GetAwaiter().GetResult();
+        }
+
+        public int AddTariff(Tariff tariff)
+        {
+            return AddTariffAsync(tariff).GetAwaiter().GetResult();
+        }
+
+        public bool DeleteTariff(int tariffId)
+        {
+            return DeleteTariffAsync(tariffId).GetAwaiter().GetResult();
+        }
+
+        public bool UpdateTariff(Tariff tariff)
+        {
+            return UpdateTariffAsync(tariff).GetAwaiter().GetResult();
+        }
+
+        public Tariff GetTariffById(int tariffId)
+        {
+            return GetTariffByIdAsync(tariffId).GetAwaiter().GetResult();
+        }
+
+        public List<Tariff> GetTariffsByServiceId(int serviceId)
+        {
+            return GetTariffsByServiceIdAsync(serviceId).GetAwaiter().GetResult();
+        }
+
+        public Tariff GetTariffByServiceId(int serviceId)
+        {
+            return GetTariffByServiceIdAsync(serviceId).GetAwaiter().GetResult();
+        }
+
+        public bool TariffExists(int tariffId)
+        {
+            return TariffExistsAsync(tariffId).GetAwaiter().GetResult();
+        }
+
+        public int GetTariffsCount()
+        {
+            return GetTariffsCountAsync().GetAwaiter().GetResult();
         }
     }
 }
