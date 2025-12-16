@@ -34,7 +34,6 @@ namespace WinFormsDB.Data
 
                 Console.WriteLine("Создаем таблицы...");
 
-                // СОЗДАЕМ ТАБЛИЦЫ ТОЛЬКО ЕСЛИ ИХ НЕТ
                 var createClientsTable = @"
                 CREATE TABLE IF NOT EXISTS clients (
                     client_id SERIAL PRIMARY KEY,
@@ -137,8 +136,8 @@ namespace WinFormsDB.Data
                 await CreateDefaultClientsAsync();
                 await CreateDefaultServicesAsync();
                 await CreateDefaultTariffsAsync();
-                await CreateDefaultAddressesAsync(); // ДОБАВЛЕНО
-                await CreateDefaultBillsAsync();     // ДОБАВЛЕНО
+                await CreateDefaultAddressesAsync(); 
+                await CreateDefaultBillsAsync();  
 
                 Console.WriteLine("Базовые данные успешно созданы");
             }
@@ -159,8 +158,8 @@ namespace WinFormsDB.Data
                 bool hasClients = await CheckIfTableHasDataAsync("clients");
                 bool hasServices = await CheckIfTableHasDataAsync("services");
                 bool hasTariffs = await CheckIfTableHasDataAsync("tariffs");
-                bool hasAddresses = await CheckIfTableHasDataAsync("addresses"); // ДОБАВЛЕНО
-                bool hasBills = await CheckIfTableHasDataAsync("bills");         // ДОБАВЛЕНО
+                bool hasAddresses = await CheckIfTableHasDataAsync("addresses");
+                bool hasBills = await CheckIfTableHasDataAsync("bills");        
 
                 if (!hasClients)
                 {
@@ -317,7 +316,7 @@ namespace WinFormsDB.Data
             }
         }
 
-        // НОВЫЙ МЕТОД: Создание тестовых адресов
+      
         private async Task CreateDefaultAddressesAsync()
         {
             try
@@ -374,7 +373,7 @@ namespace WinFormsDB.Data
             }
         }
 
-        // НОВЫЙ МЕТОД: Создание тестовых счетов
+       
         private async Task CreateDefaultBillsAsync()
         {
             try

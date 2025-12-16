@@ -10,7 +10,7 @@ namespace WinFormsDB.Models
     {
         public int BillID { get; set; }
         public int AddressID { get; set; }
-        public int TariffID { get; set; } // Заменяем ServiceID на TariffID
+        public int TariffID { get; set; } 
         public decimal Amount { get; set; }
         public DateTime IssueDate { get; set; }
         public DateTime? PaymentDate { get; set; }
@@ -18,6 +18,6 @@ namespace WinFormsDB.Models
 
         // Навигационные свойства
         public Address Address { get; set; }
-        public Tariff Tariff { get; set; } // Заменяем Service на Tariff
+        public Tariff Tariff { get; set; } 
     }
 }
